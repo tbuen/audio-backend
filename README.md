@@ -1,2 +1,2 @@
 # audio-backend
-Backend for ESP32 Audio Player Apps
+[![Rust](https://github.com/tbuen/audio-backend/actions/workflows/rust.yml/badge.svg)](https://github.com/tbuen/audio-backend/actions/workflows/rust.yml)
