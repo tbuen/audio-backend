@@ -1,3 +1,5 @@
+pub const VERSION: &str = env!("VERSION");
+
 #[cfg(test)]
 mod tests {
     #[test]
