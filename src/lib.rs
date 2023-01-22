@@ -98,7 +98,7 @@ impl Backend {
                 Some(resp) = rx.recv() => {
                     println!("backend thread received {:?} from gui", resp);
                     match resp {
-                        Command::Quit => {client.shutdown(); rx.close();},
+                        Command::Quit => {client.shutdown().await; rx.close();},
                         _ => {},
                     }
                 },
