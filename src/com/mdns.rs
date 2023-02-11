@@ -52,7 +52,7 @@ impl Mdns {
                     Self::stop(&mut daemon, &mut receiver);
                     break;
                 }
-                _ => {}
+                Err(_) => {}
             }
 
             if ip_time.elapsed() >= Duration::from_secs(1) {

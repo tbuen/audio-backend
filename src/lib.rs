@@ -1,9 +1,6 @@
-//use reqwest::blocking::Client;
-//use reqwest::StatusCode;
-//use serde::Deserialize;
-use crate::com::Com;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread::{spawn, JoinHandle};
+use crate::com::{Com, Event};
+use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 
 mod com;
@@ -19,93 +16,79 @@ pub struct Info {
     pub esp_idf: String,
 }
 
-#[derive(Debug)]
 enum Command {
     Idle,
     Quit,
-    //Info,
-    //Mdns(SocketAddrV4),
 }
 
 pub enum Response {
+    Connected,
+    Disconnected,
     Info(Info),
 }
 
 pub struct Backend {
-    handle: Option<JoinHandle<()>>,
-    tx: Sender<Command>,
-    _rx: Receiver<Response>,
+    handle: Option<thread::JoinHandle<()>>,
+    tx: mpsc::Sender<Command>,
+    rx: mpsc::Receiver<Response>,
 }
 
 impl Backend {
     pub fn new() -> Self {
-        let (thread_tx, rx) = channel();
-        let (tx, thread_rx) = channel();
+        let (thread_tx, rx) = mpsc::channel();
+        let (tx, thread_rx) = mpsc::channel();
         Self {
-            handle: Some(spawn(|| Self::thread(thread_tx, thread_rx))),
+            handle: Some(
+                thread::Builder::new()
+                    .name(String::from("audio:backend"))
+                    .spawn(move || Self::thread(thread_tx, thread_rx))
+                    .unwrap(),
+            ),
             tx,
-            _rx: rx,
+            rx,
         }
     }
 
-    /*pub fn send(&self, cmd: Command) {
-        self.tx.send(cmd);
-    }*/
-
     pub fn receive(&self) -> Option<Response> {
         self.tx.send(Command::Idle).unwrap();
-        /*match self.rx.try_recv() {
-            Ok(resp) => return Some(resp),
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                println!("Thread disconnected!")
-            }
-        }*/
-        None
+        self.rx.try_recv().ok()
     }
 
-    fn thread(_tx: Sender<Response>, rx: Receiver<Command>) {
-        /*let client = Client::builder()
-            .connect_timeout(Duration::from_secs(3))
-            .timeout(Duration::from_secs(5))
-            .build()
-            .unwrap();
-        loop {
-            let mut info: Info = Default::default();
-            let resp = client.get("http://192.168.4.1/info").send();
-            match resp {
-                Ok(resp) => {
-                    println!("Response: {:?}", resp);
-                    if resp.status() == StatusCode::OK {
-                        if let Ok(data) = resp.json() {
-                            info = data
-                        }
-                    }
-                }
-                Err(error) => println!("{:?}", error),
-            };
-            send.send(Response::Info(info)).unwrap();
-            thread::sleep(Duration::from_secs(5));
-        }*/
-
+    fn thread(tx: mpsc::Sender<Response>, rx: mpsc::Receiver<Command>) {
         let com = Com::new();
 
         loop {
             match rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(resp) => {
-                    println!("backend thread received {:?} from gui", resp);
-                    match resp {
-                        Command::Quit => break,
-                        _ => {}
-                    }
+                Ok(Command::Idle) => {
+                    println!("backend thread idle");
                 }
-                _ => {}
+                Ok(Command::Quit) => {
+                    println!("backend thread quit");
+                    break;
+                }
+                Err(_) => {}
             }
+
             match com.recv_timeout(Duration::from_millis(10)) {
-                Ok(resp) => {
-                    println!("backend thread received {} from com", resp);
+                Ok(Event::Connected) => {
+                    println!("Connected!");
+                    tx.send(Response::Connected).unwrap();
+                    com.send(String::from(r#"{"jsonrpc":"2.0","method":"bla","id":1}"#));
                 }
-                _ => {}
+                Ok(Event::Disconnected) => {
+                    println!("Disconnected!");
+                    tx.send(Response::Disconnected).unwrap();
+                }
+                Ok(Event::Message(msg)) => {
+                    println!("Message: {}", msg);
+                    tx.send(Response::Info(Info {
+                        project: String::from("boomi"),
+                        version: String::from("10.1"),
+                        esp_idf: String::from("neu"),
+                    }))
+                    .unwrap();
+                }
+                Err(_) => {}
             }
         }
 
@@ -115,10 +98,8 @@ impl Backend {
 
 impl Drop for Backend {
     fn drop(&mut self) {
-        if self.handle.is_some() {
-            self.tx.send(Command::Quit).unwrap();
-            self.handle.take().unwrap().join().unwrap();
-        }
+        self.tx.send(Command::Quit).unwrap();
+        self.handle.take().unwrap().join().unwrap();
     }
 }
 

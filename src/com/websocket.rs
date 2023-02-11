@@ -11,6 +11,7 @@ use tungstenite::stream::MaybeTlsStream;
 
 enum Command {
     Quit,
+    Message(String),
 }
 
 pub enum Event {
@@ -43,6 +44,10 @@ impl WebSocket {
 
     pub fn recv_timeout(&self, dur: Duration) -> Result<Event, mpsc::RecvTimeoutError> {
         self.rx.recv_timeout(dur)
+    }
+
+    pub fn send(&self, msg: String) {
+        self.tx.send(Command::Message(msg)).unwrap();
     }
 
     fn thread(sock: SocketAddrV4, tx: mpsc::Sender<Event>, rx: mpsc::Receiver<Command>) {
@@ -81,13 +86,22 @@ impl WebSocket {
                         ws.close(None).unwrap();
                         close_time = Some(Instant::now());
                     }
-                    _ => {}
+                    Ok(Command::Message(msg)) => {
+                        println!("try to send message {}", msg);
+                        match ws.write_message(Text(msg)) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                println!("ws send error: {:?}", e);
+                            }
+                        }
+                    }
+                    Err(_) => {}
                 }
 
                 if ping_time.elapsed() >= Duration::from_secs(PING_INTERVAL) {
                     if ws.can_write() {
                         match ws.write_message(Ping(Vec::new())) {
-                            Ok(()) => {
+                            Ok(_) => {
                                 println!("ping...");
                             }
                             Err(e) => {

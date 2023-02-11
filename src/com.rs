@@ -1,5 +1,6 @@
 use crate::com::mdns::Mdns;
-use crate::com::websocket::{Event, WebSocket};
+pub use crate::com::websocket::Event;
+use crate::com::websocket::WebSocket;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -9,12 +10,13 @@ mod websocket;
 
 enum Command {
     Quit,
+    Message(String),
 }
 
 pub struct Com {
     handle: Option<thread::JoinHandle<()>>,
     tx: mpsc::Sender<Command>,
-    rx: mpsc::Receiver<String>,
+    rx: mpsc::Receiver<Event>,
 }
 
 impl Com {
@@ -33,13 +35,17 @@ impl Com {
         }
     }
 
-    pub fn recv_timeout(&self, dur: Duration) -> Result<String, mpsc::RecvTimeoutError> {
+    pub fn recv_timeout(&self, dur: Duration) -> Result<Event, mpsc::RecvTimeoutError> {
         self.rx.recv_timeout(dur)
     }
 
-    fn thread(_tx: mpsc::Sender<String>, rx: mpsc::Receiver<Command>) {
+    pub fn send(&self, msg: String) {
+        self.tx.send(Command::Message(msg)).unwrap();
+    }
+
+    fn thread(tx: mpsc::Sender<Event>, rx: mpsc::Receiver<Command>) {
         let mut mdns = Some(Mdns::new());
-        let mut websocket = None;
+        let mut websocket: Option<WebSocket> = None;
 
         loop {
             match rx.recv_timeout(Duration::from_millis(10)) {
@@ -47,7 +53,12 @@ impl Com {
                     println!("com thread received Quit");
                     break;
                 }
-                _ => {}
+                Ok(Command::Message(msg)) => {
+                    if let Some(ws) = &websocket {
+                        ws.send(msg);
+                    }
+                }
+                Err(_) => {}
             }
 
             if let Some(m) = &mdns {
@@ -57,24 +68,20 @@ impl Com {
                         mdns.take().unwrap();
                         websocket = Some(WebSocket::new(sock));
                     }
-                    _ => {}
+                    Err(_) => {}
                 }
             }
 
             if let Some(ws) = &websocket {
                 match ws.recv_timeout(Duration::from_millis(10)) {
-                    Ok(Event::Connected) => {
-                        println!("WebSocket connected!");
+                    Ok(evt) => {
+                        if let Event::Disconnected = &evt {
+                            websocket.take().unwrap();
+                            mdns = Some(Mdns::new());
+                        }
+                        tx.send(evt).unwrap();
                     }
-                    Ok(Event::Disconnected) => {
-                        println!("WebSocket disconnected!");
-                        websocket.take().unwrap();
-                        mdns = Some(Mdns::new());
-                    }
-                    Ok(Event::Message(msg)) => {
-                        println!("WebSocket message: {}", msg);
-                    }
-                    _ => {}
+                    Err(_) => {}
                 }
             }
         }
