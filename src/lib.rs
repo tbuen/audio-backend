@@ -1,12 +1,10 @@
 //use reqwest::blocking::Client;
 //use reqwest::StatusCode;
 //use serde::Deserialize;
-use crate::com::Client;
-use std::net::SocketAddrV4;
+use crate::com::Com;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
-//use std::time::Duration;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use std::time::Duration;
 
 mod com;
 
@@ -22,11 +20,11 @@ pub struct Info {
 }
 
 #[derive(Debug)]
-pub enum Command {
+enum Command {
     Idle,
     Quit,
-    Info,
-    Mdns(SocketAddrV4),
+    //Info,
+    //Mdns(SocketAddrV4),
 }
 
 pub enum Response {
@@ -35,15 +33,15 @@ pub enum Response {
 
 pub struct Backend {
     handle: Option<JoinHandle<()>>,
-    tx: UnboundedSender<Command>,
+    tx: Sender<Command>,
     _rx: Receiver<Response>,
 }
 
 impl Backend {
-    pub fn new() -> Backend {
+    pub fn new() -> Self {
         let (thread_tx, rx) = channel();
-        let (tx, thread_rx) = unbounded_channel();
-        Backend {
+        let (tx, thread_rx) = channel();
+        Self {
             handle: Some(spawn(|| Self::thread(thread_tx, thread_rx))),
             tx,
             _rx: rx,
@@ -66,8 +64,7 @@ impl Backend {
         None
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn thread(_tx: Sender<Response>, mut rx: UnboundedReceiver<Command>) {
+    fn thread(_tx: Sender<Response>, rx: Receiver<Command>) {
         /*let client = Client::builder()
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(5))
@@ -91,23 +88,24 @@ impl Backend {
             thread::sleep(Duration::from_secs(5));
         }*/
 
-        let mut client = Client::new();
+        let com = Com::new();
 
         loop {
-            tokio::select! {
-                Some(resp) = rx.recv() => {
+            match rx.recv_timeout(Duration::from_millis(10)) {
+                Ok(resp) => {
                     println!("backend thread received {:?} from gui", resp);
                     match resp {
-                        Command::Quit => {client.shutdown().await; rx.close();},
-                        _ => {},
+                        Command::Quit => break,
+                        _ => {}
                     }
-                },
-                Some(resp) = client.recv() => {
+                }
+                _ => {}
+            }
+            match com.recv_timeout(Duration::from_millis(10)) {
+                Ok(resp) => {
                     println!("backend thread received {} from com", resp);
                 }
-                else => {
-                    break;
-                }
+                _ => {}
             }
         }
 
