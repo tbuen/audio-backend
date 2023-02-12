@@ -1,18 +1,18 @@
-use crate::com::{Com, Event};
+use crate::json::{Message, Result, Rpc};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 mod com;
+mod json;
 
 pub const VERSION: &str = env!("VERSION");
 
-//#[derive(Default, Debug, Deserialize)]
+// TODO move to other file, types.rs ???
 #[derive(Debug)]
 pub struct Info {
     pub project: String,
     pub version: String,
-    //   #[serde(rename = "esp-idf")]
     pub esp_idf: String,
 }
 
@@ -21,7 +21,7 @@ enum Command {
     Quit,
 }
 
-pub enum Response {
+pub enum Event {
     Connected,
     Disconnected,
     Info(Info),
@@ -30,7 +30,7 @@ pub enum Response {
 pub struct Backend {
     handle: Option<thread::JoinHandle<()>>,
     tx: mpsc::Sender<Command>,
-    rx: mpsc::Receiver<Response>,
+    rx: mpsc::Receiver<Event>,
 }
 
 impl Backend {
@@ -49,13 +49,14 @@ impl Backend {
         }
     }
 
-    pub fn receive(&self) -> Option<Response> {
+    pub fn receive(&self) -> Option<Event> {
         self.tx.send(Command::Idle).unwrap();
         self.rx.try_recv().ok()
     }
 
-    fn thread(tx: mpsc::Sender<Response>, rx: mpsc::Receiver<Command>) {
-        let com = Com::new();
+    fn thread(tx: mpsc::Sender<Event>, rx: mpsc::Receiver<Command>) {
+        let com = com::Com::new();
+        let mut rpc = Rpc::new();
 
         loop {
             match rx.recv_timeout(Duration::from_millis(10)) {
@@ -70,23 +71,34 @@ impl Backend {
             }
 
             match com.recv_timeout(Duration::from_millis(10)) {
-                Ok(Event::Connected) => {
+                Ok(com::Event::Connected) => {
                     println!("Connected!");
-                    tx.send(Response::Connected).unwrap();
-                    com.send(String::from(r#"{"jsonrpc":"2.0","method":"bla","id":1}"#));
+                    tx.send(Event::Connected).unwrap();
+                    com.send(rpc.get_info());
                 }
-                Ok(Event::Disconnected) => {
+                Ok(com::Event::Disconnected) => {
                     println!("Disconnected!");
-                    tx.send(Response::Disconnected).unwrap();
+                    tx.send(Event::Disconnected).unwrap();
                 }
-                Ok(Event::Message(msg)) => {
+                Ok(com::Event::Message(msg)) => {
                     println!("Message: {}", msg);
-                    tx.send(Response::Info(Info {
-                        project: String::from("boomi"),
-                        version: String::from("10.1"),
-                        esp_idf: String::from("neu"),
-                    }))
-                    .unwrap();
+                    if let Some(m) = rpc.parse(&msg) {
+                        println!("backend received message :-)");
+                        // TODO move to separate function or module??
+                        match m {
+                            Message::Response(r) => match r {
+                                Result::Info(i) => {
+                                    let evt = Event::Info(Info {
+                                        project: String::from(i.project),
+                                        version: String::from(i.version),
+                                        esp_idf: String::from(i.esp_idf),
+                                    });
+                                    tx.send(evt).unwrap();
+                                }
+                            },
+                            //Message::Notification => {}
+                        }
+                    }
                 }
                 Err(_) => {}
             }
