@@ -75,6 +75,7 @@ impl Backend {
                     println!("Connected!");
                     tx.send(Event::Connected).unwrap();
                     com.send(rpc.get_info());
+                    com.send(rpc.get_file_list());
                 }
                 Ok(com::Event::Disconnected) => {
                     println!("Disconnected!");
@@ -94,6 +95,9 @@ impl Backend {
                                         esp_idf: String::from(i.esp_idf),
                                     });
                                     tx.send(evt).unwrap();
+                                }
+                                Result::FileList(_lst) => {
+                                    // TODO
                                 }
                             },
                             //Message::Notification => {}

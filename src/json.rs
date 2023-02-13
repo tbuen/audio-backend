@@ -64,6 +64,11 @@ impl Rpc {
         serde_json::to_string(&rpc).unwrap()
     }
 
+    pub fn get_file_list(&mut self) -> String {
+        let rpc = self.request(types::GET_FILE_LIST, None);
+        serde_json::to_string(&rpc).unwrap()
+    }
+
     pub fn parse(&mut self, msg: &str) -> Option<Message> {
         // TODO parse notification, maybe as untagged enum :-)
         match serde_json::from_str::<Response>(msg) {
