@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-pub use types::Result;
+pub use types::RpcResult;
 
 mod types;
 
-const VERSION: &str = "2.0";
+const RPC_VERSION: &str = "2.0";
 
 // TODO Notifications, Params
 
@@ -19,7 +19,7 @@ struct Request<'a> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Error<'a> {
+struct RpcError<'a> {
     code: i16,
     message: &'a str,
 }
@@ -28,8 +28,8 @@ struct Error<'a> {
 #[serde(deny_unknown_fields)]
 struct Response<'a> {
     jsonrpc: &'a str,
-    result: Option<Result>,
-    error: Option<Error<'a>>,
+    result: Option<RpcResult>,
+    error: Option<RpcError<'a>>,
     id: Option<u32>,
 }
 
@@ -42,7 +42,7 @@ struct Notification {
 }*/
 
 pub enum Message {
-    Response(Result),
+    Response(RpcResult),
     //Notification,
 }
 
@@ -59,8 +59,8 @@ impl Rpc {
         }
     }
 
-    pub fn get_info(&mut self) -> String {
-        let rpc = self.request(types::GET_INFO, None);
+    pub fn get_version(&mut self) -> String {
+        let rpc = self.request(types::GET_VERSION, None);
         serde_json::to_string(&rpc).unwrap()
     }
 
@@ -73,7 +73,7 @@ impl Rpc {
         // TODO parse notification, maybe as untagged enum :-)
         match serde_json::from_str::<Response>(msg) {
             Ok(rpc) => {
-                if rpc.jsonrpc == VERSION {
+                if rpc.jsonrpc == RPC_VERSION {
                     if let Some(e) = rpc.error {
                         println!("Received RPC error {}: {}", e.code, e.message);
                     } else if let Some(r) = rpc.result {
@@ -92,7 +92,7 @@ impl Rpc {
         None
     }
 
-    fn check_id(&mut self, res: &Result, id: Option<u32>) -> bool {
+    fn check_id(&mut self, res: &RpcResult, id: Option<u32>) -> bool {
         match id {
             Some(id) => match self.map.remove(&id) {
                 Some(m) => {
@@ -120,7 +120,7 @@ impl Rpc {
         self.id += 1;
         self.map.insert(self.id, method);
         Request {
-            jsonrpc: VERSION,
+            jsonrpc: RPC_VERSION,
             method: method,
             params,
             id: self.id,

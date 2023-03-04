@@ -1,4 +1,4 @@
-use crate::json::{Message, Result, Rpc};
+use crate::json::{Message, Rpc, RpcResult};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -10,48 +10,44 @@ pub const VERSION: &str = env!("VERSION");
 
 // TODO move to other file, types.rs ???
 #[derive(Debug)]
-pub struct Info {
+pub struct Version {
     pub project: String,
     pub version: String,
     pub esp_idf: String,
 }
 
 enum Command {
-    Idle,
     Quit,
 }
 
 pub enum Event {
     Connected,
+    Version(Version),
+    Synchronized,
     Disconnected,
-    Info(Info),
 }
 
 pub struct Backend {
     handle: Option<thread::JoinHandle<()>>,
     tx: mpsc::Sender<Command>,
-    rx: mpsc::Receiver<Event>,
 }
 
 impl Backend {
-    pub fn new() -> Self {
-        let (thread_tx, rx) = mpsc::channel();
-        let (tx, thread_rx) = mpsc::channel();
-        Self {
-            handle: Some(
-                thread::Builder::new()
-                    .name(String::from("audio:backend"))
-                    .spawn(move || Self::thread(thread_tx, thread_rx))
-                    .unwrap(),
-            ),
-            tx,
+    pub fn new() -> (Self, mpsc::Receiver<Event>) {
+        let (tx, rx_thread) = mpsc::channel();
+        let (tx_thread, rx) = mpsc::channel();
+        (
+            Self {
+                handle: Some(
+                    thread::Builder::new()
+                        .name(String::from("audio:backend"))
+                        .spawn(move || Self::thread(tx_thread, rx_thread))
+                        .unwrap(),
+                ),
+                tx,
+            },
             rx,
-        }
-    }
-
-    pub fn receive(&self) -> Option<Event> {
-        self.tx.send(Command::Idle).unwrap();
-        self.rx.try_recv().ok()
+        )
     }
 
     fn thread(tx: mpsc::Sender<Event>, rx: mpsc::Receiver<Command>) {
@@ -60,9 +56,6 @@ impl Backend {
 
         loop {
             match rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(Command::Idle) => {
-                    println!("backend thread idle");
-                }
                 Ok(Command::Quit) => {
                     println!("backend thread quit");
                     break;
@@ -74,7 +67,7 @@ impl Backend {
                 Ok(com::Event::Connected) => {
                     println!("Connected!");
                     tx.send(Event::Connected).unwrap();
-                    com.send(rpc.get_info());
+                    com.send(rpc.get_version());
                     com.send(rpc.get_file_list());
                 }
                 Ok(com::Event::Disconnected) => {
@@ -88,16 +81,17 @@ impl Backend {
                         // TODO move to separate function or module??
                         match m {
                             Message::Response(r) => match r {
-                                Result::Info(i) => {
-                                    let evt = Event::Info(Info {
-                                        project: String::from(i.project),
-                                        version: String::from(i.version),
-                                        esp_idf: String::from(i.esp_idf),
+                                RpcResult::Version(ver) => {
+                                    let evt = Event::Version(Version {
+                                        project: String::from(ver.project),
+                                        version: String::from(ver.version),
+                                        esp_idf: String::from(ver.esp_idf),
                                     });
                                     tx.send(evt).unwrap();
                                 }
-                                Result::FileList(_lst) => {
+                                RpcResult::FileList(_lst) => {
                                     // TODO
+                                    tx.send(Event::Synchronized).unwrap();
                                 }
                             },
                             //Message::Notification => {}

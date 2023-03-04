@@ -1,10 +1,10 @@
 use serde::Deserialize;
 
-pub const GET_INFO: &str = "get-info";
+pub const GET_VERSION: &str = "get-version";
 pub const GET_FILE_LIST: &str = "get-file-list";
 
 #[derive(Deserialize)]
-pub struct Info {
+pub struct Version {
     pub project: String,
     pub version: String,
     #[serde(rename = "esp-idf")]
@@ -13,14 +13,14 @@ pub struct Info {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-pub enum Result {
-    Info(Info),
+pub enum RpcResult {
+    Version(Version),
     FileList(Vec<String>),
 }
 
-pub fn check_type(result: &Result, method: &str) -> bool {
+pub fn check_type(result: &RpcResult, method: &str) -> bool {
     match result {
-        Result::Info(_) => return method == GET_INFO,
-        Result::FileList(_) => return method == GET_FILE_LIST,
+        RpcResult::Version(_) => return method == GET_VERSION,
+        RpcResult::FileList(_) => return method == GET_FILE_LIST,
     }
 }
