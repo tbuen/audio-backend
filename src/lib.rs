@@ -1,56 +1,60 @@
 use crate::json::{Message, Rpc, RpcResult};
-use std::sync::mpsc;
+use data::{Data, File};
+pub use event::Event;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 mod com;
+mod data;
+mod event;
 mod json;
 
 pub const VERSION: &str = env!("VERSION");
-
-// TODO move to other file, types.rs ???
-#[derive(Debug)]
-pub struct Version {
-    pub project: String,
-    pub version: String,
-    pub esp_idf: String,
-}
 
 enum Command {
     Quit,
 }
 
-pub enum Event {
-    Connected,
-    Version(Version),
-    Synchronized,
-    Disconnected,
-}
-
 pub struct Backend {
     handle: Option<thread::JoinHandle<()>>,
-    tx: mpsc::Sender<Command>,
+    tx: Sender<Command>,
+    data: Arc<Mutex<Data>>,
 }
 
 impl Backend {
-    pub fn new() -> (Self, mpsc::Receiver<Event>) {
-        let (tx, rx_thread) = mpsc::channel();
-        let (tx_thread, rx) = mpsc::channel();
+    pub fn new() -> (Self, Receiver<Event>) {
+        let (tx, rx_thread) = channel();
+        let (tx_thread, rx) = channel();
+        let data = Arc::new(Mutex::new(Data::new()));
+        let data_thread = data.clone();
         (
             Self {
                 handle: Some(
                     thread::Builder::new()
                         .name(String::from("audio:backend"))
-                        .spawn(move || Self::thread(tx_thread, rx_thread))
+                        .spawn(move || Self::thread(tx_thread, rx_thread, data_thread))
                         .unwrap(),
                 ),
                 tx,
+                data,
             },
             rx,
         )
     }
 
-    fn thread(tx: mpsc::Sender<Event>, rx: mpsc::Receiver<Command>) {
+    pub fn current_dir(&self) -> String {
+        let data = self.data.lock().unwrap();
+        data.current_dir()
+    }
+
+    pub fn file_list(&self) -> Vec<File> {
+        let data = self.data.lock().unwrap();
+        data.file_list()
+    }
+
+    fn thread(tx: Sender<Event>, rx: Receiver<Command>, data: Arc<Mutex<Data>>) {
         let com = com::Com::new();
         let mut rpc = Rpc::new();
 
@@ -78,24 +82,7 @@ impl Backend {
                     println!("Message: {}", msg);
                     if let Some(m) = rpc.parse(&msg) {
                         println!("backend received message :-)");
-                        // TODO move to separate function or module??
-                        match m {
-                            Message::Response(r) => match r {
-                                RpcResult::Version(ver) => {
-                                    let evt = Event::Version(Version {
-                                        project: String::from(ver.project),
-                                        version: String::from(ver.version),
-                                        esp_idf: String::from(ver.esp_idf),
-                                    });
-                                    tx.send(evt).unwrap();
-                                }
-                                RpcResult::FileList(_lst) => {
-                                    // TODO
-                                    tx.send(Event::Synchronized).unwrap();
-                                }
-                            },
-                            //Message::Notification => {}
-                        }
+                        Self::handle_message(m, &tx, &data);
                     }
                 }
                 Err(_) => {}
@@ -103,6 +90,27 @@ impl Backend {
         }
 
         println!("exit backend thread");
+    }
+
+    fn handle_message(msg: Message, tx: &Sender<Event>, data: &Arc<Mutex<Data>>) {
+        match msg {
+            Message::Response(r) => match r {
+                RpcResult::Version(ver) => {
+                    let evt = Event::Version(event::Version {
+                        project: String::from(&ver.project),
+                        version: String::from(&ver.version),
+                        esp_idf: String::from(&ver.esp_idf),
+                    });
+                    tx.send(evt).unwrap();
+                }
+                RpcResult::FileList(lst) => {
+                    let mut data = data.lock().unwrap();
+                    data.set_file_list(lst);
+                    tx.send(Event::Synchronized).unwrap();
+                }
+            },
+            //Message::Notification => {}
+        }
     }
 }
 
