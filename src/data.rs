@@ -6,41 +6,52 @@ pub struct Data {
 }
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct File {
-    pub dir: bool,
-    pub name: String,
+pub enum DirEntry {
+    Dir(String),
+    File(String),
 }
 
 impl Data {
     pub fn new() -> Self {
         Self {
-            current_dir: String::from("/sdcard/"),
+            current_dir: String::from("/"),
             file_list: Vec::new(),
         }
     }
 
     pub fn current_dir(&self) -> String {
-        self.current_dir.clone()
+        let re = Regex::new(r"/([a-zA-Z0-9]+)/$").unwrap();
+        if let Some(c) = re.captures(&self.current_dir) {
+            String::from(c.get(1).unwrap().as_str())
+        } else {
+            String::new()
+        }
     }
 
-    pub fn file_list(&self) -> Vec<File> {
+    pub fn dir_up(&mut self) {
+        if self.current_dir != "/" {
+            let re = Regex::new(r"/[a-zA-Z0-9]+/$").unwrap();
+            self.current_dir = re.replace(&self.current_dir, "/").into_owned();
+        }
+    }
+
+    pub fn dir_enter(&mut self, dir: &str) {
+        self.current_dir.push_str(dir);
+        self.current_dir.push('/');
+    }
+
+    pub fn dir_content(&self) -> Vec<DirEntry> {
         let re_dir = Regex::new(&format!("^{}([a-zA-Z0-9]+)/.*$", &self.current_dir)).unwrap();
         let re_file = Regex::new(&format!(r"^{}([a-zA-Z0-9]+\.OGG)$", &self.current_dir)).unwrap();
 
-        let mut list: Vec<File> = self
+        let mut list: Vec<DirEntry> = self
             .file_list
             .iter()
             .filter_map(|f| {
                 if let Some(c) = re_dir.captures(f) {
-                    Some(File {
-                        dir: true,
-                        name: String::from(c.get(1).unwrap().as_str()),
-                    })
+                    Some(DirEntry::Dir(String::from(c.get(1).unwrap().as_str())))
                 } else if let Some(c) = re_file.captures(f) {
-                    Some(File {
-                        dir: false,
-                        name: String::from(c.get(1).unwrap().as_str()),
-                    })
+                    Some(DirEntry::File(String::from(c.get(1).unwrap().as_str())))
                 } else {
                     None
                 }

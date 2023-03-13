@@ -1,5 +1,6 @@
 use crate::json::{Message, Rpc, RpcResult};
-use data::{Data, File};
+use data::Data;
+pub use data::DirEntry;
 pub use event::Event;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -49,9 +50,19 @@ impl Backend {
         data.current_dir()
     }
 
-    pub fn file_list(&self) -> Vec<File> {
+    pub fn dir_enter(&self, dir: &str) {
+        let mut data = self.data.lock().unwrap();
+        data.dir_enter(dir);
+    }
+
+    pub fn dir_up(&self) {
+        let mut data = self.data.lock().unwrap();
+        data.dir_up();
+    }
+
+    pub fn dir_content(&self) -> Vec<DirEntry> {
         let data = self.data.lock().unwrap();
-        data.file_list()
+        data.dir_content()
     }
 
     fn thread(tx: Sender<Event>, rx: Receiver<Command>, data: Arc<Mutex<Data>>) {
