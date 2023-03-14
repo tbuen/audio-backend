@@ -20,7 +20,7 @@ impl Data {
     }
 
     pub fn current_dir(&self) -> String {
-        let re = Regex::new(r"/([a-zA-Z0-9]+)/$").unwrap();
+        let re = Regex::new(r"/([^/]+)/$").unwrap();
         if let Some(c) = re.captures(&self.current_dir) {
             String::from(c.get(1).unwrap().as_str())
         } else {
@@ -30,7 +30,7 @@ impl Data {
 
     pub fn dir_up(&mut self) {
         if self.current_dir != "/" {
-            let re = Regex::new(r"/[a-zA-Z0-9]+/$").unwrap();
+            let re = Regex::new(r"/[^/]+/$").unwrap();
             self.current_dir = re.replace(&self.current_dir, "/").into_owned();
         }
     }
@@ -41,8 +41,8 @@ impl Data {
     }
 
     pub fn dir_content(&self) -> Vec<DirEntry> {
-        let re_dir = Regex::new(&format!("^{}([a-zA-Z0-9]+)/.*$", &self.current_dir)).unwrap();
-        let re_file = Regex::new(&format!(r"^{}([a-zA-Z0-9]+\.OGG)$", &self.current_dir)).unwrap();
+        let re_dir = Regex::new(&format!("^{}([^/]+)/.*$", &self.current_dir)).unwrap();
+        let re_file = Regex::new(&format!(r"^{}([^/]+\.ogg)$", &self.current_dir)).unwrap();
 
         let mut list: Vec<DirEntry> = self
             .file_list
