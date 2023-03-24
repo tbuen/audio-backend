@@ -1,4 +1,4 @@
-use crate::json::{Message, Rpc, RpcResult};
+use crate::json::{ErrReq, Message, Rpc, RpcResult};
 use data::Data;
 pub use data::DirEntry;
 pub use event::Event;
@@ -15,6 +15,7 @@ mod json;
 pub const VERSION: &str = env!("VERSION");
 
 enum Command {
+    Reload,
     Quit,
 }
 
@@ -65,12 +66,19 @@ impl Backend {
         data.dir_content()
     }
 
+    pub fn reload(&self) {
+        self.tx.send(Command::Reload).unwrap();
+    }
+
     fn thread(tx: Sender<Event>, rx: Receiver<Command>, data: Arc<Mutex<Data>>) {
         let com = com::Com::new();
         let mut rpc = Rpc::new();
 
         loop {
             match rx.recv_timeout(Duration::from_millis(10)) {
+                Ok(Command::Reload) => {
+                    com.send(rpc.get_file_list());
+                }
                 Ok(Command::Quit) => {
                     println!("backend thread quit");
                     break;
@@ -83,7 +91,6 @@ impl Backend {
                     println!("Connected!");
                     tx.send(Event::Connected).unwrap();
                     com.send(rpc.get_version());
-                    com.send(rpc.get_file_list());
                 }
                 Ok(com::Event::Disconnected) => {
                     println!("Disconnected!");
@@ -106,18 +113,44 @@ impl Backend {
     fn handle_message(msg: Message, tx: &Sender<Event>, data: &Arc<Mutex<Data>>) {
         match msg {
             Message::Response(r) => match r {
-                RpcResult::Version(ver) => {
-                    let evt = Event::Version(event::Version {
-                        project: String::from(&ver.project),
-                        version: String::from(&ver.version),
-                        esp_idf: String::from(&ver.esp_idf),
-                    });
-                    tx.send(evt).unwrap();
-                }
-                RpcResult::FileList(lst) => {
-                    let mut data = data.lock().unwrap();
-                    data.set_file_list(lst);
-                    tx.send(Event::Synchronized).unwrap();
+                Ok(r) => match r {
+                    RpcResult::Version(ver) => {
+                        let evt = Event::Version(event::Version {
+                            project: String::from(&ver.project),
+                            version: String::from(&ver.version),
+                            esp_idf: String::from(&ver.esp_idf),
+                        });
+                        tx.send(evt).unwrap();
+                    }
+                    RpcResult::FileList(lst) => {
+                        // TODO
+                        let mut data = data.lock().unwrap();
+                        data.set_file_list(lst);
+                        tx.send(Event::Synchronized).unwrap();
+                    }
+                },
+                Err(e) => {
+                    tx.send(Event::Error(format!(
+                        "{}: {} ({})",
+                        e.method, e.message, e.code
+                    )))
+                    .unwrap();
+                    match e.request {
+                        ErrReq::Version => {
+                            println!(
+                                "error Version during command {}: {}: {}",
+                                e.method, e.code, e.message
+                            );
+                        }
+                        ErrReq::FileList => {
+                            tx.send(Event::Synchronized).unwrap();
+                            println!(
+                                "error FileList during command {}: {}: {}",
+                                e.method, e.code, e.message
+                            );
+                        }
+                        _ => {}
+                    }
                 }
             },
             //Message::Notification => {}

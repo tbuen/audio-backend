@@ -18,6 +18,25 @@ pub enum RpcResult {
     FileList(Vec<String>),
 }
 
+#[derive(Default)]
+pub enum ErrReq {
+    #[default]
+    Unknown,
+    Version,
+    FileList,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RpcError {
+    #[serde(skip_deserializing)]
+    pub request: ErrReq,
+    #[serde(skip_deserializing)]
+    pub method: String,
+    pub code: i16,
+    pub message: String,
+}
+
 pub fn check_type(result: &RpcResult, method: &str) -> bool {
     match result {
         RpcResult::Version(_) => return method == GET_VERSION,

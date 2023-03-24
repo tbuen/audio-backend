@@ -10,4 +10,5 @@ pub enum Event {
     Version(Version),
     Synchronized,
     Disconnected,
+    Error(String),
 }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-pub use types::RpcResult;
+pub use types::{ErrReq, RpcError, RpcResult};
 
 mod types;
 
@@ -19,17 +19,10 @@ struct Request<'a> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RpcError<'a> {
-    code: i16,
-    message: &'a str,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Response<'a> {
     jsonrpc: &'a str,
     result: Option<RpcResult>,
-    error: Option<RpcError<'a>>,
+    error: Option<RpcError>,
     id: Option<u32>,
 }
 
@@ -42,7 +35,7 @@ struct Notification {
 }*/
 
 pub enum Message {
-    Response(RpcResult),
+    Response(Result<RpcResult, RpcError>),
     //Notification,
 }
 
@@ -74,11 +67,14 @@ impl Rpc {
         match serde_json::from_str::<Response>(msg) {
             Ok(rpc) => {
                 if rpc.jsonrpc == RPC_VERSION {
-                    if let Some(e) = rpc.error {
+                    if let Some(mut e) = rpc.error {
                         println!("Received RPC error {}: {}", e.code, e.message);
+                        if self.check_error(&mut e, rpc.id) {
+                            return Some(Message::Response(Err(e)));
+                        }
                     } else if let Some(r) = rpc.result {
                         if self.check_id(&r, rpc.id) {
-                            return Some(Message::Response(r));
+                            return Some(Message::Response(Ok(r)));
                         }
                     } else {
                         println!("Received neither result nor error...");
@@ -103,6 +99,36 @@ impl Rpc {
                         return true;
                     } else {
                         println!("type check failed");
+                    }
+                }
+                None => {
+                    println!("ID missing in map!");
+                }
+            },
+            None => {
+                println!("ID missing in response!");
+            }
+        }
+        false
+    }
+
+    fn check_error(&mut self, e: &mut RpcError, id: Option<u32>) -> bool {
+        match id {
+            Some(id) => match self.map.remove(&id) {
+                Some(m) => {
+                    println!("Method found for id {}: {}", id, m);
+                    println!("Size of map: {}", self.map.len());
+                    e.method = String::from(m);
+                    match m {
+                        types::GET_VERSION => {
+                            e.request = ErrReq::Version;
+                            return true;
+                        }
+                        types::GET_FILE_LIST => {
+                            e.request = ErrReq::FileList;
+                            return true;
+                        }
+                        _ => {}
                     }
                 }
                 None => {

@@ -80,7 +80,7 @@ impl WebSocket {
             let mut close_time = None;
 
             loop {
-                match rx.recv_timeout(Duration::from_millis(1000)) {
+                match rx.recv_timeout(Duration::from_millis(10)) {
                     Ok(Command::Quit) => {
                         println!("ws thread received Quit");
                         ws.close(None).unwrap();
@@ -152,7 +152,7 @@ impl WebSocket {
                     }
                     Err(Io(e)) => {
                         if e.kind() == WouldBlock {
-                            println!("would block...");
+                            //println!("would block...");
                         } else {
                             println!("ws received IO error: {:?}", e);
                             break;
