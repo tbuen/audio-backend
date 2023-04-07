@@ -2,7 +2,7 @@ use crate::json::{ErrReq, Message, Rpc, RpcResult};
 use data::Data;
 pub use data::DirEntry;
 pub use event::{Event, Reload};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -21,29 +21,46 @@ enum Command {
 
 pub struct Backend {
     handle: Option<thread::JoinHandle<()>>,
-    tx: Sender<Command>,
+    sender: Sender<Command>,
     data: Arc<Mutex<Data>>,
+    tx: Option<Sender<Event>>,
+    rx: Option<Receiver<Command>>,
 }
 
 impl Backend {
     pub fn new() -> (Self, Receiver<Event>) {
-        let (tx, rx_thread) = channel();
-        let (tx_thread, rx) = channel();
+        let (sender, rx) = mpsc::channel();
+        let (tx, receiver) = mpsc::channel();
         let data = Arc::new(Mutex::new(Data::new()));
-        let data_thread = data.clone();
-        (
-            Self {
-                handle: Some(
-                    thread::Builder::new()
-                        .name(String::from("audio:backend"))
-                        .spawn(move || Self::thread(tx_thread, rx_thread, data_thread))
-                        .unwrap(),
-                ),
-                tx,
-                data,
-            },
-            rx,
-        )
+        let backend = Self {
+            handle: None,
+            sender,
+            data,
+            tx: Some(tx),
+            rx: Some(rx),
+        };
+        (backend, receiver)
+    }
+
+    pub fn start(&mut self) {
+        if self.handle.is_none() {
+            let data = self.data.clone();
+            let tx = self.tx.take().unwrap();
+            let rx = self.rx.take().unwrap();
+            self.handle = Some(
+                thread::Builder::new()
+                    .name(String::from("audio:backend"))
+                    .spawn(move || Self::thread(tx, rx, data))
+                    .unwrap(),
+            );
+        }
+    }
+
+    pub fn shutdown(&mut self) {
+        if self.handle.is_some() {
+            self.sender.send(Command::Quit).unwrap();
+            self.handle.take().unwrap().join().unwrap();
+        }
     }
 
     pub fn current_dir(&self) -> String {
@@ -67,7 +84,7 @@ impl Backend {
     }
 
     pub fn reload(&self) {
-        self.tx.send(Command::Reload).unwrap();
+        self.sender.send(Command::Reload).unwrap();
     }
 
     fn thread(tx: Sender<Event>, rx: Receiver<Command>, data: Arc<Mutex<Data>>) {
@@ -186,13 +203,6 @@ impl Backend {
             },
             //Message::Notification => {}
         }
-    }
-}
-
-impl Drop for Backend {
-    fn drop(&mut self) {
-        self.tx.send(Command::Quit).unwrap();
-        self.handle.take().unwrap().join().unwrap();
     }
 }
 

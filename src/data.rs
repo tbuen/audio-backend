@@ -84,7 +84,11 @@ impl Data {
     }
 
     pub fn get_unsynced_file(&self) -> Option<String> {
-        let f = self.file_list.iter().filter(|f| f.name.ends_with(".ogg") && !f.synced).next();
+        let f = self
+            .file_list
+            .iter()
+            .filter(|f| f.name.ends_with(".ogg") && !f.synced)
+            .next();
         match f {
             Some(f) => Some(String::from(&f.name)),
             None => None,
