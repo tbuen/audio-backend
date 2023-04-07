@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-pub use types::{ErrReq, RpcError, RpcResult};
+pub use types::{ErrReq, ParamGetFileInfo, ParamGetFileList, Params, RpcError, RpcResult};
 
-mod types;
+pub mod types;
 
 const RPC_VERSION: &str = "2.0";
 
@@ -13,7 +13,7 @@ struct Request<'a> {
     jsonrpc: &'a str,
     method: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    params: Option<String>,
+    params: Option<Params>,
     id: u32,
 }
 
@@ -57,8 +57,19 @@ impl Rpc {
         serde_json::to_string(&rpc).unwrap()
     }
 
-    pub fn get_file_list(&mut self) -> String {
-        let rpc = self.request(types::GET_FILE_LIST, None);
+    pub fn get_file_list(&mut self, start: bool) -> String {
+        let rpc = self.request(
+            types::GET_FILE_LIST,
+            Some(Params::FileList(ParamGetFileList { start })),
+        );
+        serde_json::to_string(&rpc).unwrap()
+    }
+
+    pub fn get_file_info(&mut self, filename: String) -> String {
+        let rpc = self.request(
+            types::GET_FILE_INFO,
+            Some(Params::FileInfo(ParamGetFileInfo { filename })),
+        );
         serde_json::to_string(&rpc).unwrap()
     }
 
@@ -120,12 +131,17 @@ impl Rpc {
                     println!("Size of map: {}", self.map.len());
                     e.method = String::from(m);
                     match m {
+                        // TODO move to types.rs
                         types::GET_VERSION => {
                             e.request = ErrReq::Version;
                             return true;
                         }
                         types::GET_FILE_LIST => {
                             e.request = ErrReq::FileList;
+                            return true;
+                        }
+                        types::GET_FILE_INFO => {
+                            e.request = ErrReq::FileInfo;
                             return true;
                         }
                         _ => {}
@@ -142,7 +158,7 @@ impl Rpc {
         false
     }
 
-    fn request(&mut self, method: &'static str, params: Option<String>) -> Request {
+    fn request(&mut self, method: &'static str, params: Option<Params>) -> Request {
         self.id += 1;
         self.map.insert(self.id, method);
         Request {

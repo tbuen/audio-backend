@@ -1,7 +1,7 @@
 use crate::json::{ErrReq, Message, Rpc, RpcResult};
 use data::Data;
 pub use data::DirEntry;
-pub use event::Event;
+pub use event::{Event, Reload};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -77,7 +77,10 @@ impl Backend {
         loop {
             match rx.recv_timeout(Duration::from_millis(10)) {
                 Ok(Command::Reload) => {
-                    com.send(rpc.get_file_list());
+                    let mut data = data.lock().unwrap();
+                    data.clear_file_list();
+                    tx.send(Event::Reload(Reload::Start)).unwrap();
+                    com.send(rpc.get_file_list(true));
                 }
                 Ok(Command::Quit) => {
                     println!("backend thread quit");
@@ -100,7 +103,7 @@ impl Backend {
                     println!("Message: {}", msg);
                     if let Some(m) = rpc.parse(&msg) {
                         println!("backend received message :-)");
-                        Self::handle_message(m, &tx, &data);
+                        Self::handle_message(m, &com, &mut rpc, &tx, &data);
                     }
                 }
                 Err(_) => {}
@@ -110,7 +113,13 @@ impl Backend {
         println!("exit backend thread");
     }
 
-    fn handle_message(msg: Message, tx: &Sender<Event>, data: &Arc<Mutex<Data>>) {
+    fn handle_message(
+        msg: Message,
+        com: &com::Com,
+        rpc: &mut Rpc,
+        tx: &Sender<Event>,
+        data: &Arc<Mutex<Data>>,
+    ) {
         match msg {
             Message::Response(r) => match r {
                 Ok(r) => match r {
@@ -123,10 +132,38 @@ impl Backend {
                         tx.send(evt).unwrap();
                     }
                     RpcResult::FileList(lst) => {
-                        // TODO
                         let mut data = data.lock().unwrap();
-                        data.set_file_list(lst);
-                        tx.send(Event::Synchronized).unwrap();
+                        if lst.first {
+                            data.clear_file_list();
+                        }
+                        data.append_file_list(lst.files);
+                        if lst.last {
+                            match data.get_unsynced_file() {
+                                Some(f) => {
+                                    tx.send(Event::Reload(Reload::Step)).unwrap();
+                                    com.send(rpc.get_file_info(f));
+                                }
+                                None => {
+                                    tx.send(Event::Reload(Reload::Stop)).unwrap();
+                                }
+                            }
+                        } else {
+                            tx.send(Event::Reload(Reload::Step)).unwrap();
+                            com.send(rpc.get_file_list(false));
+                        }
+                    }
+                    RpcResult::FileInfo(info) => {
+                        let mut data = data.lock().unwrap();
+                        data.set_file_info(info);
+                        match data.get_unsynced_file() {
+                            Some(f) => {
+                                tx.send(Event::Reload(Reload::Step)).unwrap();
+                                com.send(rpc.get_file_info(f));
+                            }
+                            None => {
+                                tx.send(Event::Reload(Reload::Stop)).unwrap();
+                            }
+                        }
                     }
                 },
                 Err(e) => {
@@ -136,18 +173,12 @@ impl Backend {
                     )))
                     .unwrap();
                     match e.request {
-                        ErrReq::Version => {
-                            println!(
-                                "error Version during command {}: {}: {}",
-                                e.method, e.code, e.message
-                            );
-                        }
+                        ErrReq::Version => {}
                         ErrReq::FileList => {
-                            tx.send(Event::Synchronized).unwrap();
-                            println!(
-                                "error FileList during command {}: {}: {}",
-                                e.method, e.code, e.message
-                            );
+                            tx.send(Event::Reload(Reload::Stop)).unwrap();
+                        }
+                        ErrReq::FileInfo => {
+                            tx.send(Event::Reload(Reload::Stop)).unwrap();
                         }
                         _ => {}
                     }

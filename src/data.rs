@@ -1,8 +1,14 @@
+use crate::json::types::FileInfo;
 use regex::Regex;
+
+pub struct File {
+    name: String,
+    synced: bool,
+}
 
 pub struct Data {
     current_dir: String,
-    file_list: Vec<String>,
+    file_list: Vec<File>,
 }
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -48,9 +54,9 @@ impl Data {
             .file_list
             .iter()
             .filter_map(|f| {
-                if let Some(c) = re_dir.captures(f) {
+                if let Some(c) = re_dir.captures(&f.name) {
                     Some(DirEntry::Dir(String::from(c.get(1).unwrap().as_str())))
-                } else if let Some(c) = re_file.captures(f) {
+                } else if let Some(c) = re_file.captures(&f.name) {
                     Some(DirEntry::File(String::from(c.get(1).unwrap().as_str())))
                 } else {
                     None
@@ -64,8 +70,30 @@ impl Data {
         list
     }
 
-    pub fn set_file_list(&mut self, lst: Vec<String>) {
-        self.file_list = lst;
-        println!("Now stored in data: {:?}", self.file_list);
+    pub fn clear_file_list(&mut self) {
+        self.file_list.clear();
+    }
+
+    pub fn append_file_list(&mut self, lst: Vec<String>) {
+        for f in lst.into_iter() {
+            self.file_list.push(File {
+                name: f,
+                synced: false,
+            });
+        }
+    }
+
+    pub fn get_unsynced_file(&self) -> Option<String> {
+        let f = self.file_list.iter().filter(|f| f.name.ends_with(".ogg") && !f.synced).next();
+        match f {
+            Some(f) => Some(String::from(&f.name)),
+            None => None,
+        }
+    }
+
+    pub fn set_file_info(&mut self, info: FileInfo) {
+        if let Some(f) = self.file_list.iter_mut().find(|f| f.name == info.filename) {
+            f.synced = true;
+        }
     }
 }

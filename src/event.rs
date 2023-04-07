@@ -5,10 +5,16 @@ pub struct Version {
     pub esp_idf: String,
 }
 
+pub enum Reload {
+    Start,
+    Step,
+    Stop,
+}
+
 pub enum Event {
     Connected,
-    Version(Version),
-    Synchronized,
     Disconnected,
+    Version(Version),
+    Reload(Reload),
     Error(String),
 }
