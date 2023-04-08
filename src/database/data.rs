@@ -1,3 +1,4 @@
+use super::DirEntry;
 use crate::json::types::FileInfo;
 use regex::Regex;
 
@@ -11,12 +12,6 @@ pub struct Data {
     file_list: Vec<File>,
 }
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum DirEntry {
-    Dir(String),
-    File(String),
-}
-
 impl Data {
     pub fn new() -> Self {
         Self {
@@ -25,7 +20,7 @@ impl Data {
         }
     }
 
-    pub fn current_dir(&self) -> String {
+    pub fn dir_current(&self) -> String {
         let re = Regex::new(r"/([^/]+)/$").unwrap();
         if let Some(c) = re.captures(&self.current_dir) {
             String::from(c.get(1).unwrap().as_str())

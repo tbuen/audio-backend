@@ -1,101 +1,60 @@
-use crate::json::{ErrReq, Message, Rpc, RpcResult};
-use data::Data;
-pub use data::DirEntry;
+pub use database::{Database, DirEntry};
 pub use event::{Event, Reload};
+use json::{ErrReq, Message, Rpc, RpcResult};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 mod com;
-mod data;
+mod database;
 mod event;
 mod json;
 
 pub const VERSION: &str = env!("VERSION");
 
 enum Command {
-    Reload,
+    Resync,
     Quit,
 }
 
 pub struct Backend {
     handle: Option<thread::JoinHandle<()>>,
     sender: Sender<Command>,
-    data: Arc<Mutex<Data>>,
-    tx: Option<Sender<Event>>,
-    rx: Option<Receiver<Command>>,
+    database: Database,
 }
 
 impl Backend {
     pub fn new() -> (Self, Receiver<Event>) {
         let (sender, rx) = mpsc::channel();
         let (tx, receiver) = mpsc::channel();
-        let data = Arc::new(Mutex::new(Data::new()));
+        let database = Database::new(sender.clone());
+        let handle = {
+            let database = database.clone();
+            thread::Builder::new()
+                .name(String::from("audio:backend"))
+                .spawn(move || Self::thread(tx, rx, database))
+                .unwrap()
+        };
         let backend = Self {
-            handle: None,
+            handle: Some(handle),
             sender,
-            data,
-            tx: Some(tx),
-            rx: Some(rx),
+            database,
         };
         (backend, receiver)
     }
 
-    pub fn start(&mut self) {
-        if self.handle.is_none() {
-            let data = self.data.clone();
-            let tx = self.tx.take().unwrap();
-            let rx = self.rx.take().unwrap();
-            self.handle = Some(
-                thread::Builder::new()
-                    .name(String::from("audio:backend"))
-                    .spawn(move || Self::thread(tx, rx, data))
-                    .unwrap(),
-            );
-        }
+    pub fn database(&self) -> Database {
+        self.database.clone()
     }
 
-    pub fn shutdown(&mut self) {
-        if self.handle.is_some() {
-            self.sender.send(Command::Quit).unwrap();
-            self.handle.take().unwrap().join().unwrap();
-        }
-    }
-
-    pub fn current_dir(&self) -> String {
-        let data = self.data.lock().unwrap();
-        data.current_dir()
-    }
-
-    pub fn dir_enter(&self, dir: &str) {
-        let mut data = self.data.lock().unwrap();
-        data.dir_enter(dir);
-    }
-
-    pub fn dir_up(&self) {
-        let mut data = self.data.lock().unwrap();
-        data.dir_up();
-    }
-
-    pub fn dir_content(&self) -> Vec<DirEntry> {
-        let data = self.data.lock().unwrap();
-        data.dir_content()
-    }
-
-    pub fn reload(&self) {
-        self.sender.send(Command::Reload).unwrap();
-    }
-
-    fn thread(tx: Sender<Event>, rx: Receiver<Command>, data: Arc<Mutex<Data>>) {
+    fn thread(tx: Sender<Event>, rx: Receiver<Command>, database: Database) {
         let com = com::Com::new();
         let mut rpc = Rpc::new();
 
         loop {
             match rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(Command::Reload) => {
-                    let mut data = data.lock().unwrap();
-                    data.clear_file_list();
+                Ok(Command::Resync) => {
+                    database.clear_file_list();
                     tx.send(Event::Reload(Reload::Start)).unwrap();
                     com.send(rpc.get_file_list(true));
                 }
@@ -120,7 +79,7 @@ impl Backend {
                     println!("Message: {}", msg);
                     if let Some(m) = rpc.parse(&msg) {
                         println!("backend received message :-)");
-                        Self::handle_message(m, &com, &mut rpc, &tx, &data);
+                        Self::handle_message(m, &com, &mut rpc, &tx, &database);
                     }
                 }
                 Err(_) => {}
@@ -135,7 +94,7 @@ impl Backend {
         com: &com::Com,
         rpc: &mut Rpc,
         tx: &Sender<Event>,
-        data: &Arc<Mutex<Data>>,
+        database: &Database,
     ) {
         match msg {
             Message::Response(r) => match r {
@@ -149,13 +108,12 @@ impl Backend {
                         tx.send(evt).unwrap();
                     }
                     RpcResult::FileList(lst) => {
-                        let mut data = data.lock().unwrap();
                         if lst.first {
-                            data.clear_file_list();
+                            database.clear_file_list();
                         }
-                        data.append_file_list(lst.files);
+                        database.append_file_list(lst.files);
                         if lst.last {
-                            match data.get_unsynced_file() {
+                            match database.get_unsynced_file() {
                                 Some(f) => {
                                     tx.send(Event::Reload(Reload::Step)).unwrap();
                                     com.send(rpc.get_file_info(f));
@@ -170,9 +128,8 @@ impl Backend {
                         }
                     }
                     RpcResult::FileInfo(info) => {
-                        let mut data = data.lock().unwrap();
-                        data.set_file_info(info);
-                        match data.get_unsynced_file() {
+                        database.set_file_info(info);
+                        match database.get_unsynced_file() {
                             Some(f) => {
                                 tx.send(Event::Reload(Reload::Step)).unwrap();
                                 com.send(rpc.get_file_info(f));
@@ -203,6 +160,13 @@ impl Backend {
             },
             //Message::Notification => {}
         }
+    }
+}
+
+impl Drop for Backend {
+    fn drop(&mut self) {
+        self.sender.send(Command::Quit).unwrap();
+        self.handle.take().unwrap().join().unwrap();
     }
 }
 
