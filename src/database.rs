@@ -26,6 +26,11 @@ impl Database {
         }
     }
 
+    pub(super) fn save(&self) {
+        let data = self.data.lock().unwrap();
+        data.save();
+    }
+
     pub fn resync(&self) {
         self.sender.send(Command::Resync).unwrap();
     }
@@ -50,14 +55,9 @@ impl Database {
         data.dir_content()
     }
 
-    pub(super) fn clear_file_list(&self) {
+    pub(super) fn update_file_list(&self, lst: Vec<String>, last: bool) {
         let mut data = self.data.lock().unwrap();
-        data.clear_file_list();
-    }
-
-    pub(super) fn append_file_list(&self, lst: Vec<String>) {
-        let mut data = self.data.lock().unwrap();
-        data.append_file_list(lst);
+        data.update_file_list(lst, last);
     }
 
     pub(super) fn get_unsynced_file(&self) -> Option<String> {
@@ -68,5 +68,10 @@ impl Database {
     pub(super) fn set_file_info(&self, info: FileInfo) {
         let mut data = self.data.lock().unwrap();
         data.set_file_info(info);
+    }
+
+    pub(super) fn sync_stats(&self) -> (usize, usize) {
+        let data = self.data.lock().unwrap();
+        data.sync_stats()
     }
 }

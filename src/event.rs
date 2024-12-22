@@ -7,7 +7,7 @@ pub struct Version {
 
 pub enum Reload {
     Start,
-    Step,
+    Step(Option<(usize, usize)>),
     Stop,
 }
 

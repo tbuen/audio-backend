@@ -54,7 +54,6 @@ impl Backend {
         loop {
             match rx.recv_timeout(Duration::from_millis(10)) {
                 Ok(Command::Resync) => {
-                    database.clear_file_list();
                     tx.send(Event::Reload(Reload::Start)).unwrap();
                     com.send(rpc.get_file_list(true));
                 }
@@ -108,14 +107,12 @@ impl Backend {
                         tx.send(evt).unwrap();
                     }
                     RpcResult::FileList(lst) => {
-                        if lst.first {
-                            database.clear_file_list();
-                        }
-                        database.append_file_list(lst.files);
+                        database.update_file_list(lst.files, lst.last);
                         if lst.last {
                             match database.get_unsynced_file() {
                                 Some(f) => {
-                                    tx.send(Event::Reload(Reload::Step)).unwrap();
+                                    let p = database.sync_stats();
+                                    tx.send(Event::Reload(Reload::Step(Some(p)))).unwrap();
                                     com.send(rpc.get_file_info(f));
                                 }
                                 None => {
@@ -123,7 +120,7 @@ impl Backend {
                                 }
                             }
                         } else {
-                            tx.send(Event::Reload(Reload::Step)).unwrap();
+                            tx.send(Event::Reload(Reload::Step(None))).unwrap();
                             com.send(rpc.get_file_list(false));
                         }
                     }
@@ -131,11 +128,13 @@ impl Backend {
                         database.set_file_info(info);
                         match database.get_unsynced_file() {
                             Some(f) => {
-                                tx.send(Event::Reload(Reload::Step)).unwrap();
+                                let p = database.sync_stats();
+                                tx.send(Event::Reload(Reload::Step(Some(p)))).unwrap();
                                 com.send(rpc.get_file_info(f));
                             }
                             None => {
                                 tx.send(Event::Reload(Reload::Stop)).unwrap();
+                                database.save();
                             }
                         }
                     }
