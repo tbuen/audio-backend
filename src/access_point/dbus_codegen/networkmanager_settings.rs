@@ -5,9 +5,18 @@ use dbus::arg;
 use dbus::blocking;
 
 pub trait OrgFreedesktopDBusProperties {
-    fn get(&self, interface_name: &str, property_name: &str) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error>;
+    fn get(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+    ) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error>;
     fn get_all(&self, interface_name: &str) -> Result<arg::PropMap, dbus::Error>;
-    fn set(&self, interface_name: &str, property_name: &str, value: arg::Variant<Box<dyn arg::RefArg>>) -> Result<(), dbus::Error>;
+    fn set(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+        value: arg::Variant<Box<dyn arg::RefArg>>,
+    ) -> Result<(), dbus::Error>;
 }
 
 #[derive(Debug)]
@@ -40,18 +49,42 @@ impl dbus::message::SignalArgs for OrgFreedesktopDBusPropertiesPropertiesChanged
     const INTERFACE: &'static str = "org.freedesktop.DBus.Properties";
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusProperties for blocking::Proxy<'a, C> {
-    fn get(&self, interface_name: &str, property_name: &str) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "Get", (interface_name, property_name))
-            .and_then(|r: (arg::Variant<Box<dyn arg::RefArg + 'static>>,)| Ok(r.0))
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusProperties
+    for blocking::Proxy<'a, C>
+{
+    fn get(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+    ) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error> {
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            (interface_name, property_name),
+        )
+        .and_then(|r: (arg::Variant<Box<dyn arg::RefArg + 'static>>,)| Ok(r.0))
     }
 
     fn get_all(&self, interface_name: &str) -> Result<arg::PropMap, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "GetAll", (interface_name,)).and_then(|r: (arg::PropMap,)| Ok(r.0))
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "GetAll",
+            (interface_name,),
+        )
+        .and_then(|r: (arg::PropMap,)| Ok(r.0))
     }
 
-    fn set(&self, interface_name: &str, property_name: &str, value: arg::Variant<Box<dyn arg::RefArg>>) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "Set", (interface_name, property_name, value))
+    fn set(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+        value: arg::Variant<Box<dyn arg::RefArg>>,
+    ) -> Result<(), dbus::Error> {
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "Set",
+            (interface_name, property_name, value),
+        )
     }
 }
 
@@ -59,9 +92,12 @@ pub trait OrgFreedesktopDBusIntrospectable {
     fn introspect(&self) -> Result<String, dbus::Error>;
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusIntrospectable for blocking::Proxy<'a, C> {
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>>
+    OrgFreedesktopDBusIntrospectable for blocking::Proxy<'a, C>
+{
     fn introspect(&self) -> Result<String, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Introspectable", "Introspect", ()).and_then(|r: (String,)| Ok(r.0))
+        self.method_call("org.freedesktop.DBus.Introspectable", "Introspect", ())
+            .and_then(|r: (String,)| Ok(r.0))
     }
 }
 
@@ -70,20 +106,26 @@ pub trait OrgFreedesktopDBusPeer {
     fn get_machine_id(&self) -> Result<String, dbus::Error>;
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusPeer for blocking::Proxy<'a, C> {
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusPeer
+    for blocking::Proxy<'a, C>
+{
     fn ping(&self) -> Result<(), dbus::Error> {
         self.method_call("org.freedesktop.DBus.Peer", "Ping", ())
     }
 
     fn get_machine_id(&self) -> Result<String, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Peer", "GetMachineId", ()).and_then(|r: (String,)| Ok(r.0))
+        self.method_call("org.freedesktop.DBus.Peer", "GetMachineId", ())
+            .and_then(|r: (String,)| Ok(r.0))
     }
 }
 
 pub trait OrgFreedesktopNetworkManagerSettings {
     fn list_connections(&self) -> Result<Vec<dbus::Path<'static>>, dbus::Error>;
     fn get_connection_by_uuid(&self, uuid: &str) -> Result<dbus::Path<'static>, dbus::Error>;
-    fn add_connection(&self, connection: ::std::collections::HashMap<&str, arg::PropMap>) -> Result<dbus::Path<'static>, dbus::Error>;
+    fn add_connection(
+        &self,
+        connection: ::std::collections::HashMap<&str, arg::PropMap>,
+    ) -> Result<dbus::Path<'static>, dbus::Error>;
     fn add_connection_unsaved(
         &self,
         connection: ::std::collections::HashMap<&str, arg::PropMap>,
@@ -150,28 +192,49 @@ impl dbus::message::SignalArgs for OrgFreedesktopNetworkManagerSettingsConnectio
     const INTERFACE: &'static str = "org.freedesktop.NetworkManager.Settings";
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopNetworkManagerSettings for blocking::Proxy<'a, C> {
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>>
+    OrgFreedesktopNetworkManagerSettings for blocking::Proxy<'a, C>
+{
     fn list_connections(&self) -> Result<Vec<dbus::Path<'static>>, dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings", "ListConnections", ())
-            .and_then(|r: (Vec<dbus::Path<'static>>,)| Ok(r.0))
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings",
+            "ListConnections",
+            (),
+        )
+        .and_then(|r: (Vec<dbus::Path<'static>>,)| Ok(r.0))
     }
 
     fn get_connection_by_uuid(&self, uuid: &str) -> Result<dbus::Path<'static>, dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings", "GetConnectionByUuid", (uuid,))
-            .and_then(|r: (dbus::Path<'static>,)| Ok(r.0))
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings",
+            "GetConnectionByUuid",
+            (uuid,),
+        )
+        .and_then(|r: (dbus::Path<'static>,)| Ok(r.0))
     }
 
-    fn add_connection(&self, connection: ::std::collections::HashMap<&str, arg::PropMap>) -> Result<dbus::Path<'static>, dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings", "AddConnection", (connection,))
-            .and_then(|r: (dbus::Path<'static>,)| Ok(r.0))
+    fn add_connection(
+        &self,
+        connection: ::std::collections::HashMap<&str, arg::PropMap>,
+    ) -> Result<dbus::Path<'static>, dbus::Error> {
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings",
+            "AddConnection",
+            (connection,),
+        )
+        .and_then(|r: (dbus::Path<'static>,)| Ok(r.0))
     }
 
     fn add_connection_unsaved(
         &self,
         connection: ::std::collections::HashMap<&str, arg::PropMap>,
     ) -> Result<dbus::Path<'static>, dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings", "AddConnectionUnsaved", (connection,))
-            .and_then(|r: (dbus::Path<'static>,)| Ok(r.0))
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings",
+            "AddConnectionUnsaved",
+            (connection,),
+        )
+        .and_then(|r: (dbus::Path<'static>,)| Ok(r.0))
     }
 
     fn add_connection2(
@@ -180,30 +243,59 @@ impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreed
         flags: u32,
         args: arg::PropMap,
     ) -> Result<(dbus::Path<'static>, arg::PropMap), dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings", "AddConnection2", (settings, flags, args))
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings",
+            "AddConnection2",
+            (settings, flags, args),
+        )
     }
 
     fn load_connections(&self, filenames: Vec<&str>) -> Result<(bool, Vec<String>), dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings", "LoadConnections", (filenames,))
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings",
+            "LoadConnections",
+            (filenames,),
+        )
     }
 
     fn reload_connections(&self) -> Result<bool, dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings", "ReloadConnections", ()).and_then(|r: (bool,)| Ok(r.0))
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings",
+            "ReloadConnections",
+            (),
+        )
+        .and_then(|r: (bool,)| Ok(r.0))
     }
 
     fn save_hostname(&self, hostname: &str) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings", "SaveHostname", (hostname,))
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings",
+            "SaveHostname",
+            (hostname,),
+        )
     }
 
     fn connections(&self) -> Result<Vec<dbus::Path<'static>>, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.Settings", "Connections")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.Settings",
+            "Connections",
+        )
     }
 
     fn hostname(&self) -> Result<String, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.Settings", "Hostname")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.Settings",
+            "Hostname",
+        )
     }
 
     fn can_modify(&self) -> Result<bool, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.Settings", "CanModify")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.Settings",
+            "CanModify",
+        )
     }
 }

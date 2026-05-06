@@ -38,7 +38,10 @@ impl Backend {
         //let database = Database::new(sender.clone());
         let handle = {
             //let database = database.clone();
-            thread::Builder::new().name(String::from("audio:backend")).spawn(move || Self::thread(tx, rx)).unwrap()
+            thread::Builder::new()
+                .name(String::from("audio:backend"))
+                .spawn(move || Self::thread(tx, rx))
+                .unwrap()
         };
         Self {
             handle: Some(handle),

@@ -5,9 +5,18 @@ use dbus::arg;
 use dbus::blocking;
 
 pub trait OrgFreedesktopDBusProperties {
-    fn get(&self, interface_name: &str, property_name: &str) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error>;
+    fn get(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+    ) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error>;
     fn get_all(&self, interface_name: &str) -> Result<arg::PropMap, dbus::Error>;
-    fn set(&self, interface_name: &str, property_name: &str, value: arg::Variant<Box<dyn arg::RefArg>>) -> Result<(), dbus::Error>;
+    fn set(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+        value: arg::Variant<Box<dyn arg::RefArg>>,
+    ) -> Result<(), dbus::Error>;
 }
 
 #[derive(Debug)]
@@ -40,18 +49,42 @@ impl dbus::message::SignalArgs for OrgFreedesktopDBusPropertiesPropertiesChanged
     const INTERFACE: &'static str = "org.freedesktop.DBus.Properties";
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusProperties for blocking::Proxy<'a, C> {
-    fn get(&self, interface_name: &str, property_name: &str) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "Get", (interface_name, property_name))
-            .and_then(|r: (arg::Variant<Box<dyn arg::RefArg + 'static>>,)| Ok(r.0))
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusProperties
+    for blocking::Proxy<'a, C>
+{
+    fn get(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+    ) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error> {
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            (interface_name, property_name),
+        )
+        .and_then(|r: (arg::Variant<Box<dyn arg::RefArg + 'static>>,)| Ok(r.0))
     }
 
     fn get_all(&self, interface_name: &str) -> Result<arg::PropMap, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "GetAll", (interface_name,)).and_then(|r: (arg::PropMap,)| Ok(r.0))
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "GetAll",
+            (interface_name,),
+        )
+        .and_then(|r: (arg::PropMap,)| Ok(r.0))
     }
 
-    fn set(&self, interface_name: &str, property_name: &str, value: arg::Variant<Box<dyn arg::RefArg>>) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "Set", (interface_name, property_name, value))
+    fn set(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+        value: arg::Variant<Box<dyn arg::RefArg>>,
+    ) -> Result<(), dbus::Error> {
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "Set",
+            (interface_name, property_name, value),
+        )
     }
 }
 
@@ -59,9 +92,12 @@ pub trait OrgFreedesktopDBusIntrospectable {
     fn introspect(&self) -> Result<String, dbus::Error>;
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusIntrospectable for blocking::Proxy<'a, C> {
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>>
+    OrgFreedesktopDBusIntrospectable for blocking::Proxy<'a, C>
+{
     fn introspect(&self) -> Result<String, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Introspectable", "Introspect", ()).and_then(|r: (String,)| Ok(r.0))
+        self.method_call("org.freedesktop.DBus.Introspectable", "Introspect", ())
+            .and_then(|r: (String,)| Ok(r.0))
     }
 }
 
@@ -70,13 +106,16 @@ pub trait OrgFreedesktopDBusPeer {
     fn get_machine_id(&self) -> Result<String, dbus::Error>;
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusPeer for blocking::Proxy<'a, C> {
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusPeer
+    for blocking::Proxy<'a, C>
+{
     fn ping(&self) -> Result<(), dbus::Error> {
         self.method_call("org.freedesktop.DBus.Peer", "Ping", ())
     }
 
     fn get_machine_id(&self) -> Result<String, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Peer", "GetMachineId", ()).and_then(|r: (String,)| Ok(r.0))
+        self.method_call("org.freedesktop.DBus.Peer", "GetMachineId", ())
+            .and_then(|r: (String,)| Ok(r.0))
     }
 }
 
@@ -94,48 +133,94 @@ pub trait OrgFreedesktopNetworkManagerAccessPoint {
     fn last_seen(&self) -> Result<i32, dbus::Error>;
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopNetworkManagerAccessPoint for blocking::Proxy<'a, C> {
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>>
+    OrgFreedesktopNetworkManagerAccessPoint for blocking::Proxy<'a, C>
+{
     fn flags(&self) -> Result<u32, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "Flags")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "Flags",
+        )
     }
 
     fn wpa_flags(&self) -> Result<u32, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "WpaFlags")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "WpaFlags",
+        )
     }
 
     fn rsn_flags(&self) -> Result<u32, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "RsnFlags")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "RsnFlags",
+        )
     }
 
     fn ssid(&self) -> Result<Vec<u8>, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "Ssid")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "Ssid",
+        )
     }
 
     fn frequency(&self) -> Result<u32, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "Frequency")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "Frequency",
+        )
     }
 
     fn hw_address(&self) -> Result<String, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "HwAddress")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "HwAddress",
+        )
     }
 
     fn mode(&self) -> Result<u32, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "Mode")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "Mode",
+        )
     }
 
     fn max_bitrate(&self) -> Result<u32, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "MaxBitrate")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "MaxBitrate",
+        )
     }
 
     fn bandwidth(&self) -> Result<u32, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "Bandwidth")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "Bandwidth",
+        )
     }
 
     fn strength(&self) -> Result<u8, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "Strength")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "Strength",
+        )
     }
 
     fn last_seen(&self) -> Result<i32, dbus::Error> {
-        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(self, "org.freedesktop.NetworkManager.AccessPoint", "LastSeen")
+        <Self as blocking::stdintf::org_freedesktop_dbus::Properties>::get(
+            self,
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "LastSeen",
+        )
     }
 }

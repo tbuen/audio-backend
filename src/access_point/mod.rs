@@ -32,7 +32,10 @@ impl Connector {
     pub fn new() -> Self {
         let (sender, receiver) = crossbeam_channel::unbounded();
         let sender_thread = sender.clone();
-        let handle = thread::Builder::new().name("audio:access_point".into()).spawn(|| Self::thread(sender_thread, receiver)).unwrap();
+        let handle = thread::Builder::new()
+            .name("audio:access_point".into())
+            .spawn(|| Self::thread(sender_thread, receiver))
+            .unwrap();
         Self {
             handle: Some(handle),
             sender,
@@ -42,22 +45,44 @@ impl Connector {
     fn thread(tx: Sender<Cmd>, rx: Receiver<Cmd>) {
         let conn = Connection::new_system().unwrap();
 
-        let proxy = conn.with_proxy("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", Duration::from_millis(5000));
+        let proxy = conn.with_proxy(
+            "org.freedesktop.NetworkManager",
+            "/org/freedesktop/NetworkManager",
+            Duration::from_millis(5000),
+        );
 
         let connection = {
-            let proxy_settings =
-                conn.with_proxy("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager/Settings", Duration::from_millis(5000));
+            let proxy_settings = conn.with_proxy(
+                "org.freedesktop.NetworkManager",
+                "/org/freedesktop/NetworkManager/Settings",
+                Duration::from_millis(5000),
+            );
 
             let mut connection = PropMap::new();
-            connection.insert("id".into(), Variant(Box::new(String::from("esp32-audio")) as Box<dyn RefArg>));
-            connection.insert("type".into(), Variant(Box::new(String::from("802-11-wireless")) as Box<dyn RefArg>));
+            connection.insert(
+                "id".into(),
+                Variant(Box::new(String::from("esp32-audio")) as Box<dyn RefArg>),
+            );
+            connection.insert(
+                "type".into(),
+                Variant(Box::new(String::from("802-11-wireless")) as Box<dyn RefArg>),
+            );
 
             let mut wifi = PropMap::new();
-            wifi.insert("ssid".into(), Variant(Box::new(Vec::<u8>::from("esp32-audio")) as Box<dyn RefArg>));
+            wifi.insert(
+                "ssid".into(),
+                Variant(Box::new(Vec::<u8>::from("esp32-audio")) as Box<dyn RefArg>),
+            );
 
             let mut security = PropMap::new();
-            security.insert("key-mgmt".into(), Variant(Box::new(String::from("wpa-psk")) as Box<dyn RefArg>));
-            security.insert("psk".into(), Variant(Box::new(String::from("iWFt55J9mzuPslBNbqTVfraR")) as Box<dyn RefArg>));
+            security.insert(
+                "key-mgmt".into(),
+                Variant(Box::new(String::from("wpa-psk")) as Box<dyn RefArg>),
+            );
+            security.insert(
+                "psk".into(),
+                Variant(Box::new(String::from("iWFt55J9mzuPslBNbqTVfraR")) as Box<dyn RefArg>),
+            );
 
             let mut settings = HashMap::new();
             settings.insert("connection", connection);
@@ -69,7 +94,11 @@ impl Connector {
         let mut device = None;
         if let Ok(devices) = proxy.get_devices() {
             for d in devices {
-                let proxy = conn.with_proxy("org.freedesktop.NetworkManager", &d, Duration::from_millis(5000));
+                let proxy = conn.with_proxy(
+                    "org.freedesktop.NetworkManager",
+                    &d,
+                    Duration::from_millis(5000),
+                );
 
                 let device_type = proxy.device_type().unwrap();
                 if device_type == NM_DEVICE_TYPE_WIFI {
@@ -96,10 +125,16 @@ impl Connector {
                 match cmd {
                     Cmd::Quit => break,
                     Cmd::AccessPointAdded(ap) => {
-                        let proxy_ap = conn.with_proxy("org.freedesktop.NetworkManager", &ap, Duration::from_millis(5000));
+                        let proxy_ap = conn.with_proxy(
+                            "org.freedesktop.NetworkManager",
+                            &ap,
+                            Duration::from_millis(5000),
+                        );
                         if proxy_ap.ssid().unwrap() == "esp32-audio".as_bytes() {
                             if let (Some(c), Some(d)) = (&connection, &device) {
-                                proxy.activate_connection(c.to_owned(), d.to_owned(), ap).unwrap();
+                                proxy
+                                    .activate_connection(c.to_owned(), d.to_owned(), ap)
+                                    .unwrap();
                             }
                         }
                     }
@@ -109,7 +144,11 @@ impl Connector {
         }
 
         if let Some(c) = connection {
-            let proxy = conn.with_proxy("org.freedesktop.NetworkManager", c, Duration::from_millis(5000));
+            let proxy = conn.with_proxy(
+                "org.freedesktop.NetworkManager",
+                c,
+                Duration::from_millis(5000),
+            );
             OrgFreedesktopNetworkManagerSettingsConnection::delete(&proxy).unwrap();
         }
     }

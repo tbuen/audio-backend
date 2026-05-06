@@ -5,9 +5,18 @@ use dbus::arg;
 use dbus::blocking;
 
 pub trait OrgFreedesktopDBusProperties {
-    fn get(&self, interface_name: &str, property_name: &str) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error>;
+    fn get(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+    ) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error>;
     fn get_all(&self, interface_name: &str) -> Result<arg::PropMap, dbus::Error>;
-    fn set(&self, interface_name: &str, property_name: &str, value: arg::Variant<Box<dyn arg::RefArg>>) -> Result<(), dbus::Error>;
+    fn set(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+        value: arg::Variant<Box<dyn arg::RefArg>>,
+    ) -> Result<(), dbus::Error>;
 }
 
 #[derive(Debug)]
@@ -40,18 +49,42 @@ impl dbus::message::SignalArgs for OrgFreedesktopDBusPropertiesPropertiesChanged
     const INTERFACE: &'static str = "org.freedesktop.DBus.Properties";
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusProperties for blocking::Proxy<'a, C> {
-    fn get(&self, interface_name: &str, property_name: &str) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "Get", (interface_name, property_name))
-            .and_then(|r: (arg::Variant<Box<dyn arg::RefArg + 'static>>,)| Ok(r.0))
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusProperties
+    for blocking::Proxy<'a, C>
+{
+    fn get(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+    ) -> Result<arg::Variant<Box<dyn arg::RefArg + 'static>>, dbus::Error> {
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            (interface_name, property_name),
+        )
+        .and_then(|r: (arg::Variant<Box<dyn arg::RefArg + 'static>>,)| Ok(r.0))
     }
 
     fn get_all(&self, interface_name: &str) -> Result<arg::PropMap, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "GetAll", (interface_name,)).and_then(|r: (arg::PropMap,)| Ok(r.0))
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "GetAll",
+            (interface_name,),
+        )
+        .and_then(|r: (arg::PropMap,)| Ok(r.0))
     }
 
-    fn set(&self, interface_name: &str, property_name: &str, value: arg::Variant<Box<dyn arg::RefArg>>) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Properties", "Set", (interface_name, property_name, value))
+    fn set(
+        &self,
+        interface_name: &str,
+        property_name: &str,
+        value: arg::Variant<Box<dyn arg::RefArg>>,
+    ) -> Result<(), dbus::Error> {
+        self.method_call(
+            "org.freedesktop.DBus.Properties",
+            "Set",
+            (interface_name, property_name, value),
+        )
     }
 }
 
@@ -59,9 +92,12 @@ pub trait OrgFreedesktopDBusIntrospectable {
     fn introspect(&self) -> Result<String, dbus::Error>;
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusIntrospectable for blocking::Proxy<'a, C> {
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>>
+    OrgFreedesktopDBusIntrospectable for blocking::Proxy<'a, C>
+{
     fn introspect(&self) -> Result<String, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Introspectable", "Introspect", ()).and_then(|r: (String,)| Ok(r.0))
+        self.method_call("org.freedesktop.DBus.Introspectable", "Introspect", ())
+            .and_then(|r: (String,)| Ok(r.0))
     }
 }
 
@@ -70,22 +106,36 @@ pub trait OrgFreedesktopDBusPeer {
     fn get_machine_id(&self) -> Result<String, dbus::Error>;
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusPeer for blocking::Proxy<'a, C> {
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopDBusPeer
+    for blocking::Proxy<'a, C>
+{
     fn ping(&self) -> Result<(), dbus::Error> {
         self.method_call("org.freedesktop.DBus.Peer", "Ping", ())
     }
 
     fn get_machine_id(&self) -> Result<String, dbus::Error> {
-        self.method_call("org.freedesktop.DBus.Peer", "GetMachineId", ()).and_then(|r: (String,)| Ok(r.0))
+        self.method_call("org.freedesktop.DBus.Peer", "GetMachineId", ())
+            .and_then(|r: (String,)| Ok(r.0))
     }
 }
 
 pub trait OrgFreedesktopNetworkManagerSettingsConnection {
-    fn update(&self, properties: ::std::collections::HashMap<&str, arg::PropMap>) -> Result<(), dbus::Error>;
-    fn update_unsaved(&self, properties: ::std::collections::HashMap<&str, arg::PropMap>) -> Result<(), dbus::Error>;
+    fn update(
+        &self,
+        properties: ::std::collections::HashMap<&str, arg::PropMap>,
+    ) -> Result<(), dbus::Error>;
+    fn update_unsaved(
+        &self,
+        properties: ::std::collections::HashMap<&str, arg::PropMap>,
+    ) -> Result<(), dbus::Error>;
     fn delete(&self) -> Result<(), dbus::Error>;
-    fn get_settings(&self) -> Result<::std::collections::HashMap<String, arg::PropMap>, dbus::Error>;
-    fn get_secrets(&self, setting_name: &str) -> Result<::std::collections::HashMap<String, arg::PropMap>, dbus::Error>;
+    fn get_settings(
+        &self,
+    ) -> Result<::std::collections::HashMap<String, arg::PropMap>, dbus::Error>;
+    fn get_secrets(
+        &self,
+        setting_name: &str,
+    ) -> Result<::std::collections::HashMap<String, arg::PropMap>, dbus::Error>;
     fn clear_secrets(&self) -> Result<(), dbus::Error>;
     fn save(&self) -> Result<(), dbus::Error>;
     fn update2(
@@ -136,37 +186,76 @@ impl dbus::message::SignalArgs for OrgFreedesktopNetworkManagerSettingsConnectio
     const INTERFACE: &'static str = "org.freedesktop.NetworkManager.Settings.Connection";
 }
 
-impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopNetworkManagerSettingsConnection
-    for blocking::Proxy<'a, C>
+impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>>
+    OrgFreedesktopNetworkManagerSettingsConnection for blocking::Proxy<'a, C>
 {
-    fn update(&self, properties: ::std::collections::HashMap<&str, arg::PropMap>) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings.Connection", "Update", (properties,))
+    fn update(
+        &self,
+        properties: ::std::collections::HashMap<&str, arg::PropMap>,
+    ) -> Result<(), dbus::Error> {
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings.Connection",
+            "Update",
+            (properties,),
+        )
     }
 
-    fn update_unsaved(&self, properties: ::std::collections::HashMap<&str, arg::PropMap>) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings.Connection", "UpdateUnsaved", (properties,))
+    fn update_unsaved(
+        &self,
+        properties: ::std::collections::HashMap<&str, arg::PropMap>,
+    ) -> Result<(), dbus::Error> {
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings.Connection",
+            "UpdateUnsaved",
+            (properties,),
+        )
     }
 
     fn delete(&self) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings.Connection", "Delete", ())
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings.Connection",
+            "Delete",
+            (),
+        )
     }
 
-    fn get_settings(&self) -> Result<::std::collections::HashMap<String, arg::PropMap>, dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings.Connection", "GetSettings", ())
-            .and_then(|r: (::std::collections::HashMap<String, arg::PropMap>,)| Ok(r.0))
+    fn get_settings(
+        &self,
+    ) -> Result<::std::collections::HashMap<String, arg::PropMap>, dbus::Error> {
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings.Connection",
+            "GetSettings",
+            (),
+        )
+        .and_then(|r: (::std::collections::HashMap<String, arg::PropMap>,)| Ok(r.0))
     }
 
-    fn get_secrets(&self, setting_name: &str) -> Result<::std::collections::HashMap<String, arg::PropMap>, dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings.Connection", "GetSecrets", (setting_name,))
-            .and_then(|r: (::std::collections::HashMap<String, arg::PropMap>,)| Ok(r.0))
+    fn get_secrets(
+        &self,
+        setting_name: &str,
+    ) -> Result<::std::collections::HashMap<String, arg::PropMap>, dbus::Error> {
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings.Connection",
+            "GetSecrets",
+            (setting_name,),
+        )
+        .and_then(|r: (::std::collections::HashMap<String, arg::PropMap>,)| Ok(r.0))
     }
 
     fn clear_secrets(&self) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings.Connection", "ClearSecrets", ())
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings.Connection",
+            "ClearSecrets",
+            (),
+        )
     }
 
     fn save(&self) -> Result<(), dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings.Connection", "Save", ())
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings.Connection",
+            "Save",
+            (),
+        )
     }
 
     fn update2(
@@ -175,8 +264,12 @@ impl<'a, T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreed
         flags: u32,
         args: arg::PropMap,
     ) -> Result<arg::PropMap, dbus::Error> {
-        self.method_call("org.freedesktop.NetworkManager.Settings.Connection", "Update2", (settings, flags, args))
-            .and_then(|r: (arg::PropMap,)| Ok(r.0))
+        self.method_call(
+            "org.freedesktop.NetworkManager.Settings.Connection",
+            "Update2",
+            (settings, flags, args),
+        )
+        .and_then(|r: (arg::PropMap,)| Ok(r.0))
     }
 
     fn unsaved(&self) -> Result<bool, dbus::Error> {
