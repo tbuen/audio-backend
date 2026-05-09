@@ -1,8 +1,12 @@
+use super::Event;
+use log::{debug, error};
 use std::io::ErrorKind::WouldBlock;
 use std::net::SocketAddrV4;
 use std::sync::mpsc;
-use std::thread;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
+use std::thread::{Builder, JoinHandle};
 use std::time::{Duration, Instant};
+use tungstenite::Bytes;
 use tungstenite::client::connect;
 use tungstenite::error::Error::{ConnectionClosed, Io, Protocol};
 use tungstenite::error::ProtocolError::ResetWithoutClosingHandshake;
@@ -11,62 +15,57 @@ use tungstenite::stream::MaybeTlsStream;
 
 enum Command {
     Quit,
-    Message(String),
+    //Message(String),
 }
 
-pub enum Event {
-    Connected,
-    Disconnected,
-    Message(String),
-}
-
-pub struct WebSocket {
-    handle: Option<thread::JoinHandle<()>>,
-    tx: mpsc::Sender<Command>,
-    rx: mpsc::Receiver<Event>,
+pub(crate) struct WebSocket {
+    handle: Option<JoinHandle<()>>,
+    sender: Sender<Command>,
+    receiver: Receiver<Event>,
 }
 
 impl WebSocket {
-    pub fn new(sock: SocketAddrV4) -> Self {
-        let (thread_tx, rx) = mpsc::channel();
-        let (tx, thread_rx) = mpsc::channel();
+    pub(crate) fn new(sock: SocketAddrV4) -> Self {
+        let (sender, rx) = mpsc::channel();
+        let (tx, receiver) = mpsc::channel();
         Self {
             handle: Some(
-                thread::Builder::new()
-                    .name(String::from("audio:websocket"))
-                    .spawn(move || Self::thread(sock, thread_tx, thread_rx))
+                Builder::new()
+                    .name("audio:websocket".into())
+                    .spawn(move || Self::thread(sock, tx, rx))
                     .unwrap(),
             ),
-            tx,
-            rx,
+            sender,
+            receiver,
         }
     }
 
-    pub fn recv_timeout(&self, dur: Duration) -> Result<Event, mpsc::RecvTimeoutError> {
-        self.rx.recv_timeout(dur)
+    pub(crate) fn recv_timeout(&self, dur: Duration) -> Result<Event, RecvTimeoutError> {
+        self.receiver.recv_timeout(dur)
     }
 
-    pub fn send(&self, msg: String) {
-        self.tx.send(Command::Message(msg)).unwrap();
-    }
+    //pub(crate) fn send(&self, msg: String) {
+    //    self.sender.send(Command::Message(msg)).unwrap();
+    //}
 
-    fn thread(sock: SocketAddrV4, tx: mpsc::Sender<Event>, rx: mpsc::Receiver<Command>) {
+    fn thread(sock: SocketAddrV4, tx: Sender<Event>, rx: Receiver<Command>) {
+        #![expect(clippy::similar_names)]
+
         let url = format!("ws://{}:{}/websocket", sock.ip(), sock.port());
         let mut websocket = None;
 
-        println!("try to connect");
+        debug!("try to connect");
         match connect(&url) {
             Ok((ws, _)) => {
-                println!("connected :)");
-                match ws.get_ref() {
-                    MaybeTlsStream::Plain(s) => s.set_nonblocking(true).unwrap(),
-                    _ => {}
+                debug!("connected :)");
+                if let MaybeTlsStream::Plain(s) = ws.get_ref() {
+                    s.set_nonblocking(true).unwrap();
                 }
                 websocket = Some(ws);
                 tx.send(Event::Connected).unwrap();
             }
             Err(e) => {
-                println!("Error connecting ws: {}", e);
+                error!("Error connecting ws: {e:?}");
             }
         }
 
@@ -82,84 +81,79 @@ impl WebSocket {
             loop {
                 match rx.recv_timeout(Duration::from_millis(10)) {
                     Ok(Command::Quit) => {
-                        println!("ws thread received Quit");
+                        debug!("ws thread received Quit");
                         ws.close(None).unwrap();
                         close_time = Some(Instant::now());
                     }
-                    Ok(Command::Message(msg)) => {
-                        println!("try to send message {}", msg);
-                        match ws.write_message(Text(msg)) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                println!("ws send error: {:?}", e);
-                            }
-                        }
-                    }
+                    //Ok(Command::Message(msg)) => {
+                    //    debug!("try to send message {msg}");
+                    //    match ws.send(Text(msg.into())) {
+                    //        Ok(_) => {}
+                    //        Err(e) => {
+                    //            error!("ws send error: {e:?}");
+                    //        }
+                    //    }
+                    //}
                     Err(_) => {}
                 }
 
                 if ping_time.elapsed() >= Duration::from_secs(PING_INTERVAL) {
                     if ws.can_write() {
-                        match ws.write_message(Ping(Vec::new())) {
-                            Ok(_) => {
-                                println!("ping...");
+                        match ws.send(Ping(Bytes::new())) {
+                            Ok(()) => {
+                                debug!("ping...");
                             }
                             Err(e) => {
-                                println!("ws send error: {:?}", e);
+                                error!("ws send error: {e:?}");
                             }
                         }
                     } else {
-                        println!("too late to write...");
+                        debug!("too late to write...");
                     }
                     ping_time = Instant::now();
                 }
 
                 if let Some(t) = close_time {
                     if t.elapsed() >= Duration::from_secs(CLOSE_TIMEOUT) {
-                        println!(
-                            "close not successful after {}s => hard close",
-                            CLOSE_TIMEOUT
-                        );
+                        debug!("close not successful after {CLOSE_TIMEOUT}s => hard close");
                         break;
                     }
-                } else {
-                    if pong_time.elapsed() >= Duration::from_secs(PONG_TIMEOUT) {
-                        println!("no pong received within {}s", PONG_TIMEOUT);
-                        ws.close(None).unwrap();
-                        close_time = Some(Instant::now());
-                    }
+                } else if pong_time.elapsed() >= Duration::from_secs(PONG_TIMEOUT) {
+                    debug!("no pong received within {PONG_TIMEOUT}s");
+                    ws.close(None).unwrap();
+                    close_time = Some(Instant::now());
                 }
 
-                match ws.read_message() {
+                match ws.read() {
                     Ok(Pong(_)) => {
-                        println!("...pong");
+                        debug!("...pong");
                         pong_time = Instant::now();
                     }
                     Ok(Text(s)) => {
-                        println!("ws received message: {}", s);
-                        tx.send(Event::Message(s)).unwrap();
+                        debug!("ws received message: {s}");
+                        tx.send(Event::Message(s.as_str().into())).unwrap();
                     }
                     Ok(msg) => {
-                        println!("ws received {:?}", msg);
+                        debug!("ws received {msg:?}");
                     }
                     Err(ConnectionClosed) => {
-                        println!("ws connection closed with handshake");
+                        debug!("ws connection closed with handshake");
                         break;
                     }
                     Err(Protocol(ResetWithoutClosingHandshake)) => {
-                        println!("ws connection closed without handshake");
+                        debug!("ws connection closed without handshake");
                         break;
                     }
                     Err(Io(e)) => {
                         if e.kind() == WouldBlock {
-                            //println!("would block...");
+                            //debug!("would block...");
                         } else {
-                            println!("ws received IO error: {:?}", e);
+                            error!("ws received IO error: {e:?}");
                             break;
                         }
                     }
                     Err(e) => {
-                        println!("ws received error: {:?}", e);
+                        error!("ws received error: {e:?}");
                     }
                 }
             }
@@ -167,15 +161,20 @@ impl WebSocket {
 
         tx.send(Event::Disconnected).unwrap();
 
-        println!("ws thread stopped");
+        if let Ok(Command::Quit) = rx.recv_timeout(Duration::from_secs(1)) {
+            debug!("ws thread received Quit after close");
+        }
+
+        debug!("ws thread stopped");
     }
 }
 
 impl Drop for WebSocket {
     fn drop(&mut self) {
-        match self.tx.send(Command::Quit) {
+        /*match self.sender.send(Command::Quit) {
             _ => {}
-        }
+        }*/
+        self.sender.send(Command::Quit).unwrap();
         self.handle.take().unwrap().join().unwrap();
     }
 }

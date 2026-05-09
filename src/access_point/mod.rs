@@ -1,16 +1,17 @@
-use crossbeam_channel::{Receiver, Sender};
-use dbus::arg::{PropMap, RefArg, Variant};
+use dbus::arg::{PropMap, Variant};
 use dbus::blocking::Connection;
 use dbus::{Message, Path};
-use dbus_codegen::networkmanager::OrgFreedesktopNetworkManager;
-use dbus_codegen::networkmanager_accesspoint::OrgFreedesktopNetworkManagerAccessPoint;
+use dbus_codegen::networkmanager::OrgFreedesktopNetworkManager as _;
+use dbus_codegen::networkmanager_accesspoint::OrgFreedesktopNetworkManagerAccessPoint as _;
 use dbus_codegen::networkmanager_device::{
-    OrgFreedesktopNetworkManagerDevice, OrgFreedesktopNetworkManagerDeviceWireless,
+    OrgFreedesktopNetworkManagerDevice as _, OrgFreedesktopNetworkManagerDeviceWireless as _,
     OrgFreedesktopNetworkManagerDeviceWirelessAccessPointAdded,
 };
-use dbus_codegen::networkmanager_settings::OrgFreedesktopNetworkManagerSettings;
+use dbus_codegen::networkmanager_settings::OrgFreedesktopNetworkManagerSettings as _;
 use dbus_codegen::networkmanager_settings_connection::OrgFreedesktopNetworkManagerSettingsConnection;
 use std::collections::HashMap;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
@@ -23,14 +24,14 @@ enum Cmd {
     Quit,
 }
 
-pub struct Connector {
+pub(crate) struct Connector {
     handle: Option<thread::JoinHandle<()>>,
     sender: Sender<Cmd>,
 }
 
 impl Connector {
-    pub fn new() -> Self {
-        let (sender, receiver) = crossbeam_channel::unbounded();
+    pub(crate) fn new() -> Self {
+        let (sender, receiver) = mpsc::channel();
         let sender_thread = sender.clone();
         let handle = thread::Builder::new()
             .name("audio:access_point".into())
@@ -48,40 +49,37 @@ impl Connector {
         let proxy = conn.with_proxy(
             "org.freedesktop.NetworkManager",
             "/org/freedesktop/NetworkManager",
-            Duration::from_millis(5000),
+            Duration::from_secs(5),
         );
 
         let connection = {
             let proxy_settings = conn.with_proxy(
                 "org.freedesktop.NetworkManager",
                 "/org/freedesktop/NetworkManager/Settings",
-                Duration::from_millis(5000),
+                Duration::from_secs(5),
             );
 
             let mut connection = PropMap::new();
-            connection.insert(
-                "id".into(),
-                Variant(Box::new(String::from("esp32-audio")) as Box<dyn RefArg>),
-            );
+            connection.insert("id".into(), Variant(Box::new(String::from("esp32-audio"))));
             connection.insert(
                 "type".into(),
-                Variant(Box::new(String::from("802-11-wireless")) as Box<dyn RefArg>),
+                Variant(Box::new(String::from("802-11-wireless"))),
             );
 
             let mut wifi = PropMap::new();
             wifi.insert(
                 "ssid".into(),
-                Variant(Box::new(Vec::<u8>::from("esp32-audio")) as Box<dyn RefArg>),
+                Variant(Box::new(Vec::<u8>::from("esp32-audio"))),
             );
 
             let mut security = PropMap::new();
             security.insert(
                 "key-mgmt".into(),
-                Variant(Box::new(String::from("wpa-psk")) as Box<dyn RefArg>),
+                Variant(Box::new(String::from("wpa-psk"))),
             );
             security.insert(
                 "psk".into(),
-                Variant(Box::new(String::from("iWFt55J9mzuPslBNbqTVfraR")) as Box<dyn RefArg>),
+                Variant(Box::new(String::from("iWFt55J9mzuPslBNbqTVfraR"))),
             );
 
             let mut settings = HashMap::new();
@@ -94,22 +92,19 @@ impl Connector {
         let mut device = None;
         if let Ok(devices) = proxy.get_devices() {
             for d in devices {
-                let proxy = conn.with_proxy(
-                    "org.freedesktop.NetworkManager",
-                    &d,
-                    Duration::from_millis(5000),
-                );
+                let proxy_device =
+                    conn.with_proxy("org.freedesktop.NetworkManager", &d, Duration::from_secs(5));
 
-                let device_type = proxy.device_type().unwrap();
+                let device_type = proxy_device.device_type().unwrap();
                 if device_type == NM_DEVICE_TYPE_WIFI {
                     let txc = tx.clone();
-                    proxy
+                    proxy_device
                         .match_signal(move |ap: OrgFreedesktopNetworkManagerDeviceWirelessAccessPointAdded, _: &Connection, _: &Message| {
                             txc.send(Cmd::AccessPointAdded(ap.access_point)).unwrap();
                             true
                         })
                         .unwrap();
-                    if let Ok(access_points) = proxy.get_all_access_points() {
+                    if let Ok(access_points) = proxy_device.get_all_access_points() {
                         for access_point in access_points {
                             tx.send(Cmd::AccessPointAdded(access_point)).unwrap();
                         }
@@ -128,14 +123,14 @@ impl Connector {
                         let proxy_ap = conn.with_proxy(
                             "org.freedesktop.NetworkManager",
                             &ap,
-                            Duration::from_millis(5000),
+                            Duration::from_secs(5),
                         );
-                        if proxy_ap.ssid().unwrap() == "esp32-audio".as_bytes() {
-                            if let (Some(c), Some(d)) = (&connection, &device) {
-                                proxy
-                                    .activate_connection(c.to_owned(), d.to_owned(), ap)
-                                    .unwrap();
-                            }
+                        if proxy_ap.ssid().unwrap() == "esp32-audio".as_bytes()
+                            && let (Some(c), Some(d)) = (&connection, &device)
+                        {
+                            proxy
+                                .activate_connection(c.to_owned(), d.to_owned(), ap)
+                                .unwrap();
                         }
                     }
                 }
@@ -144,12 +139,9 @@ impl Connector {
         }
 
         if let Some(c) = connection {
-            let proxy = conn.with_proxy(
-                "org.freedesktop.NetworkManager",
-                c,
-                Duration::from_millis(5000),
-            );
-            OrgFreedesktopNetworkManagerSettingsConnection::delete(&proxy).unwrap();
+            let proxy_connection =
+                conn.with_proxy("org.freedesktop.NetworkManager", c, Duration::from_secs(5));
+            OrgFreedesktopNetworkManagerSettingsConnection::delete(&proxy_connection).unwrap();
         }
     }
 }
