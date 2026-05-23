@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread::{Builder, JoinHandle};
 use std::time::{Duration, Instant};
 
-const SERVICE_TYPE: &str = "_jsonrpc-websocket._tcp.local.";
+const SERVICE_TYPE: &str = "_audio-jsonrpc-websocket._tcp.local.";
 
 enum Command {
     Quit,

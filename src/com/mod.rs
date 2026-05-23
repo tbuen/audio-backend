@@ -1,17 +1,20 @@
-use log::{debug, info};
-use mdns::Mdns;
+mod mdns;
+mod websocket;
+
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread::{Builder, JoinHandle};
 use std::time::Duration;
-use websocket::WebSocket;
 
-mod mdns;
-mod websocket;
+use log::{debug, error, info};
 
-enum Command {
-    Quit,
-    //Message(String),
+use self::mdns::Mdns;
+use self::websocket::WebSocket;
+
+pub(crate) struct Com {
+    handle: Option<JoinHandle<()>>,
+    sender: Sender<Command>,
+    receiver: Receiver<Event>,
 }
 
 pub(crate) enum Event {
@@ -20,10 +23,9 @@ pub(crate) enum Event {
     Message(String),
 }
 
-pub(crate) struct Com {
-    handle: Option<JoinHandle<()>>,
-    sender: Sender<Command>,
-    receiver: Receiver<Event>,
+enum Command {
+    Quit,
+    Message(String),
 }
 
 impl Com {
@@ -46,9 +48,9 @@ impl Com {
         self.receiver.recv_timeout(dur)
     }
 
-    //pub(crate) fn send(&self, msg: String) {
-    //    self.sender.send(Command::Message(msg)).unwrap();
-    //}
+    pub(crate) fn send(&self, msg: String) {
+        self.sender.send(Command::Message(msg)).unwrap();
+    }
 
     fn thread(tx: Sender<Event>, rx: Receiver<Command>) {
         let mut mdns = Some(Mdns::new());
@@ -56,17 +58,20 @@ impl Com {
 
         loop {
             // TODO: try to give the receiver to mdns and websocket so that they can directly send their messages and com doesn't need to poll
-            match rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(Command::Quit) => {
-                    debug!("com thread received Quit");
-                    break;
+            if let Ok(cmd) = rx.recv_timeout(Duration::from_millis(10)) {
+                match cmd {
+                    Command::Quit => {
+                        debug!("com thread received Quit");
+                        break;
+                    }
+                    Command::Message(msg) => {
+                        if let Some(ws) = &websocket {
+                            ws.send(msg);
+                        } else {
+                            error!("not connected!");
+                        }
+                    }
                 }
-                //Ok(Command::Message(msg)) => {
-                //    if let Some(ws) = &websocket {
-                //        ws.send(msg);
-                //    }
-                //}
-                Err(_) => {}
             }
 
             if let Some(m) = &mdns

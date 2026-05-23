@@ -1,11 +1,10 @@
-use super::Event;
-use log::{debug, error};
 use std::io::ErrorKind::WouldBlock;
 use std::net::SocketAddrV4;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread::{Builder, JoinHandle};
 use std::time::{Duration, Instant};
+
 use tungstenite::Bytes;
 use tungstenite::client::connect;
 use tungstenite::error::Error::{ConnectionClosed, Io, Protocol};
@@ -13,15 +12,19 @@ use tungstenite::error::ProtocolError::ResetWithoutClosingHandshake;
 use tungstenite::protocol::Message::{Ping, Pong, Text};
 use tungstenite::stream::MaybeTlsStream;
 
-enum Command {
-    Quit,
-    //Message(String),
-}
+use log::{debug, error};
+
+use super::Event;
 
 pub(crate) struct WebSocket {
     handle: Option<JoinHandle<()>>,
     sender: Sender<Command>,
     receiver: Receiver<Event>,
+}
+
+enum Command {
+    Quit,
+    Message(String),
 }
 
 impl WebSocket {
@@ -44,9 +47,9 @@ impl WebSocket {
         self.receiver.recv_timeout(dur)
     }
 
-    //pub(crate) fn send(&self, msg: String) {
-    //    self.sender.send(Command::Message(msg)).unwrap();
-    //}
+    pub(crate) fn send(&self, msg: String) {
+        self.sender.send(Command::Message(msg)).unwrap();
+    }
 
     fn thread(sock: SocketAddrV4, tx: Sender<Event>, rx: Receiver<Command>) {
         #![expect(clippy::similar_names)]
@@ -79,22 +82,23 @@ impl WebSocket {
             let mut close_time = None;
 
             loop {
-                match rx.recv_timeout(Duration::from_millis(10)) {
-                    Ok(Command::Quit) => {
-                        debug!("ws thread received Quit");
-                        ws.close(None).unwrap();
-                        close_time = Some(Instant::now());
+                if let Ok(cmd) = rx.recv_timeout(Duration::from_millis(10)) {
+                    match cmd {
+                        Command::Quit => {
+                            debug!("ws thread received Quit");
+                            ws.close(None).unwrap();
+                            close_time = Some(Instant::now());
+                        }
+                        Command::Message(msg) => {
+                            debug!("try to send message {msg}");
+                            match ws.send(Text(msg.into())) {
+                                Ok(_) => (),
+                                Err(e) => {
+                                    error!("ws send error: {e:?}");
+                                }
+                            }
+                        }
                     }
-                    //Ok(Command::Message(msg)) => {
-                    //    debug!("try to send message {msg}");
-                    //    match ws.send(Text(msg.into())) {
-                    //        Ok(_) => {}
-                    //        Err(e) => {
-                    //            error!("ws send error: {e:?}");
-                    //        }
-                    //    }
-                    //}
-                    Err(_) => {}
                 }
 
                 if ping_time.elapsed() >= Duration::from_secs(PING_INTERVAL) {
@@ -171,9 +175,6 @@ impl WebSocket {
 
 impl Drop for WebSocket {
     fn drop(&mut self) {
-        /*match self.sender.send(Command::Quit) {
-            _ => {}
-        }*/
         self.sender.send(Command::Quit).unwrap();
         self.handle.take().unwrap().join().unwrap();
     }
