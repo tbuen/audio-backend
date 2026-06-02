@@ -66,6 +66,7 @@ impl Com {
                     }
                     Command::Message(msg) => {
                         if let Some(ws) = &websocket {
+                            debug!("try to send: {msg}");
                             ws.send(msg);
                         } else {
                             error!("not connected!");

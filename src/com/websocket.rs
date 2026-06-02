@@ -52,8 +52,6 @@ impl WebSocket {
     }
 
     fn thread(sock: SocketAddrV4, tx: Sender<Event>, rx: Receiver<Command>) {
-        #![expect(clippy::similar_names)]
-
         let url = format!("ws://{}:{}/websocket", sock.ip(), sock.port());
         let mut websocket = None;
 
@@ -92,7 +90,7 @@ impl WebSocket {
                         Command::Message(msg) => {
                             debug!("try to send message {msg}");
                             match ws.send(Text(msg.into())) {
-                                Ok(_) => (),
+                                Ok(()) => (),
                                 Err(e) => {
                                     error!("ws send error: {e:?}");
                                 }

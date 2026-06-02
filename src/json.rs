@@ -1,185 +1,210 @@
-pub(crate) mod types;
+use log::error;
+use serde::Deserialize;
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use crate::common::jsonrpc;
 
-use serde::{Deserialize, Serialize};
+const GET_INFO_CON: &str = "get-info-con";
+const GET_INFO_ABOUT: &str = "get-info-about";
+const GET_WIFI_SCAN_RESULT: &str = "get-wifi-scan-result";
+const GET_WIFI_NETWORK_LIST: &str = "get-wifi-network-list";
+const SET_WIFI_NETWORK: &str = "set-wifi-network";
+const DELETE_WIFI_NETWORK: &str = "delete-wifi-network";
 
-pub(crate) use self::types::{ErrReq, Params, RpcError, RpcResult};
-
-const RPC_VERSION: &str = "2.0";
-
-// TODO Notifications, Params
-
-pub(crate) struct Rpc {
-    id: Cell<u32>,
-    map: RefCell<HashMap<u32, &'static str>>,
+#[derive(Default)]
+pub(crate) struct Handler {
+    jsonrpc: jsonrpc::Handler,
 }
 
 pub(crate) enum Message {
-    Response(Result<RpcResult, RpcError>),
+    Response(Response),
     //Notification,
 }
 
-#[derive(Serialize)]
-struct Request<'a> {
-    jsonrpc: &'a str,
-    method: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    params: Option<Params>,
-    id: u32,
+pub(crate) enum Response {
+    InfoCon(Result<Con, jsonrpc::ExecError>),
+    InfoAbout(Result<About, jsonrpc::ExecError>),
+    ScanResult(Result<Vec<Network>, jsonrpc::ExecError>),
+    NetworkList(Result<Vec<String>, jsonrpc::ExecError>),
+}
+//#[derive(Deserialize)]
+//#[serde(untagged)]
+//pub(crate) enum RpcResult {
+//   InfoCon(InfoCon),
+//  ScanResult(Vec<Network>),
+// NetworkList(Vec<String>),
+//FileList(FileList),
+//FileInfo(FileInfo),
+//}
+
+#[derive(Deserialize)]
+pub(crate) struct Con {
+    pub mode: String,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Response<'a> {
-    jsonrpc: &'a str,
-    result: Option<RpcResult>,
-    error: Option<RpcError>,
-    id: Option<u32>,
+pub(crate) struct About {
+    pub project: String,
+    pub version: String,
+    #[serde(rename = "esp-idf")]
+    pub esp_idf: String,
 }
 
-/*#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Notification {
-    jsonrpc: String,
-    method: String,
-    params: Option<String>,
-}*/
+#[derive(Deserialize)]
+pub(crate) struct Network {
+    pub ssid: String,
+    pub rssi: i8,
+}
 
-impl Rpc {
-    pub(crate) fn new() -> Self {
-        Self {
-            id: Cell::new(0),
-            map: RefCell::new(HashMap::new()),
-        }
-    }
-
+impl Handler {
     pub(crate) fn get_info_con(&self) -> String {
-        let rpc = self.request(types::GET_INFO_CON, None);
-        serde_json::to_string(&rpc).unwrap()
+        self.jsonrpc.build_request(GET_INFO_CON)
     }
 
-    pub(crate) fn get_scan_result(&self) -> String {
-        let rpc = self.request(types::GET_WIFI_SCAN_RESULT, None);
-        serde_json::to_string(&rpc).unwrap()
+    pub(crate) fn get_info_about(&self) -> String {
+        self.jsonrpc.build_request(GET_INFO_ABOUT)
     }
 
-    pub(crate) fn get_network_list(&self) -> String {
-        let rpc = self.request(types::GET_WIFI_NETWORK_LIST, None);
-        serde_json::to_string(&rpc).unwrap()
+    pub(crate) fn get_wifi_scan_result(&self) -> String {
+        self.jsonrpc.build_request(GET_WIFI_SCAN_RESULT)
     }
 
-    /*pub(crate) fn get_file_list(&self, start: bool) -> String {
-        let rpc = self.request(
-            types::GET_FILE_LIST,
-            Some(Params::FileList(ParamGetFileList { start })),
-        );
-        serde_json::to_string(&rpc).unwrap()
+    pub(crate) fn get_wifi_network_list(&self) -> String {
+        self.jsonrpc.build_request(GET_WIFI_NETWORK_LIST)
     }
 
-    pub(crate) fn get_file_info(&self, filename: String) -> String {
-        let rpc = self.request(
-            types::GET_FILE_INFO,
-            Some(Params::FileInfo(ParamGetFileInfo { filename })),
-        );
-        serde_json::to_string(&rpc).unwrap()
-    }*/
+    pub(crate) fn set_wifi_network(&self, _ssid: &str, _key: &str) -> String {
+        self.jsonrpc.build_request(SET_WIFI_NETWORK)
+    }
+
+    pub(crate) fn delete_wifi_network(&self, _ssid: &str) -> String {
+        self.jsonrpc.build_request(DELETE_WIFI_NETWORK)
+    }
 
     pub(crate) fn parse(&self, msg: &str) -> Option<Message> {
-        // TODO parse notification, maybe as untagged enum :-)
-        match serde_json::from_str::<Response<'_>>(msg) {
-            Ok(rpc) => {
-                if rpc.jsonrpc == RPC_VERSION {
-                    if let Some(mut e) = rpc.error {
-                        println!("Received RPC error {}: {}", e.code, e.message);
-                        if self.check_error(&mut e, rpc.id) {
-                            return Some(Message::Response(Err(e)));
-                        }
-                    } else if let Some(r) = rpc.result {
-                        if self.check_id(&r, rpc.id) {
-                            return Some(Message::Response(Ok(r)));
-                        }
-                    } else {
-                        println!("Received neither result nor error...");
-                    }
-                }
-            }
-            Err(e) => {
-                println!("Could not parse jsonrpc: {}", e)
-            }
-        }
-        None
-    }
+        /*Response {
+            method: &'a str,
+            data: Result<Value, Error>,
+        },
+        Notification {
+            method: &'a str,
+            data: Value,
+        },*/
 
-    fn check_id(&self, res: &RpcResult, id: Option<u32>) -> bool {
-        println!("Size of map: {}", self.map.borrow().len());
-        match id {
-            Some(id) => match self.map.borrow_mut().remove(&id) {
-                Some(m) => {
-                    println!("Method found for id {}: {}", id, m);
-                    if types::check_type(res, m) {
-                        println!("type check ok");
-                        return true;
-                    } else {
-                        println!("type check failed");
-                    }
-                }
-                None => {
-                    println!("ID missing in map!");
-                }
-            },
-            None => {
-                println!("ID missing in response!");
-            }
-        }
-        false
-    }
+        /*InfoCon(Result<InfoCon, Error>),
+        ScanResult(Result<Vec<Network>, Error>),
+        NetworkList(Result<Vec<String>, Error>),*/
 
-    fn check_error(&self, e: &mut RpcError, id: Option<u32>) -> bool {
-        println!("Size of map: {}", self.map.borrow().len());
-        match id {
-            Some(id) => match self.map.borrow_mut().remove(&id) {
-                Some(m) => {
-                    println!("Method found for id {}: {}", id, m);
-                    e.method = String::from(m);
-                    match m {
-                        // TODO move to types.rs
-                        types::GET_INFO_CON => {
-                            e.request = ErrReq::InfoCon;
-                            return true;
-                        }
-                        /*types::GET_FILE_LIST => {
-                            e.request = ErrReq::FileList;
-                            return true;
-                        }
-                        types::GET_FILE_INFO => {
-                            e.request = ErrReq::FileInfo;
-                            return true;
-                        }*/
-                        _ => {}
+        if let Some(msg) = self.jsonrpc.parse(msg) {
+            match msg {
+                jsonrpc::Message::Response { method, data } => match method {
+                    GET_INFO_CON => match data {
+                        Ok(v) => match serde_json::from_value(v) {
+                            Ok(o) => Some(Message::Response(Response::InfoCon(Ok(o)))),
+                            Err(e) => {
+                                error!("Could not parse response: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => Some(Message::Response(Response::InfoCon(Err(e)))),
+                    },
+                    GET_INFO_ABOUT => match data {
+                        Ok(v) => match serde_json::from_value(v) {
+                            Ok(o) => Some(Message::Response(Response::InfoAbout(Ok(o)))),
+                            Err(e) => {
+                                error!("Could not parse response: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => Some(Message::Response(Response::InfoAbout(Err(e)))),
+                    },
+                    GET_WIFI_SCAN_RESULT => match data {
+                        Ok(v) => match serde_json::from_value(v) {
+                            Ok(o) => Some(Message::Response(Response::ScanResult(Ok(o)))),
+                            Err(e) => {
+                                error!("Could not parse response: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => Some(Message::Response(Response::ScanResult(Err(e)))),
+                    },
+                    GET_WIFI_NETWORK_LIST => match data {
+                        Ok(v) => match serde_json::from_value(v) {
+                            Ok(o) => Some(Message::Response(Response::NetworkList(Ok(o)))),
+                            Err(e) => {
+                                error!("Could not parse response: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => Some(Message::Response(Response::NetworkList(Err(e)))),
+                    },
+                    _ => {
+                        error!("Received response with unknown method: {method}");
+                        None
                     }
-                }
-                None => {
-                    println!("ID missing in map!");
-                }
-            },
-            None => {
-                println!("ID missing in response!");
+                },
             }
-        }
-        false
-    }
-
-    fn request(&self, method: &'static str, params: Option<Params>) -> Request<'static> {
-        let id = self.id.get() + 1;
-        self.id.set(id);
-        self.map.borrow_mut().insert(id, method);
-        Request {
-            jsonrpc: RPC_VERSION,
-            method,
-            params,
-            id,
+        } else {
+            None
         }
     }
 }
+
+/*use serde::{Deserialize, Serialize};
+
+//pub(crate) const GET_FILE_LIST: &str = "get-file-list";
+//pub(crate) const GET_FILE_INFO: &str = "get-file-info";
+
+
+//#[derive(Serialize)]
+//pub(crate) struct ParamGetFileList {
+//    pub start: bool,
+//}
+
+//#[derive(Serialize)]
+//pub(crate) struct ParamGetFileInfo {
+//    pub filename: String,
+//}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub(crate) enum Params {
+    //FileList(ParamGetFileList),
+    //FileInfo(ParamGetFileInfo),
+}
+
+//#[derive(Deserialize)]
+//pub(crate) struct FileList {
+//    pub first: bool,
+//    pub last: bool,
+//    pub files: Vec<String>,
+//}
+
+//#[derive(Deserialize)]
+//pub(crate) struct FileInfo {
+//    pub filename: String,
+//    pub genre: String,
+//    pub artist: String,
+//    pub album: String,
+//    pub title: String,
+//    pub date: Option<u16>,
+//    pub track: u16,
+//    pub duration: u16,
+//}
+
+*/
+
+/*pub(crate) fn get_file_list(&self, start: bool) -> String {
+    let rpc = self.request(
+        types::GET_FILE_LIST,
+        Some(Params::FileList(ParamGetFileList { start })),
+    );
+    serde_json::to_string(&rpc).unwrap()
+}
+
+pub(crate) fn get_file_info(&self, filename: String) -> String {
+    let rpc = self.request(
+        types::GET_FILE_INFO,
+        Some(Params::FileInfo(ParamGetFileInfo { filename })),
+    );
+    serde_json::to_string(&rpc).unwrap()
+}*/
