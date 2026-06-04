@@ -4,8 +4,8 @@
 #![allow(unreachable_pub)]
 #![allow(unused)]
 #![allow(clippy::bind_instead_of_map)]
-#![allow(clippy::pedantic)]
-#![allow(clippy::restriction)]
+#![allow(clippy::elidable_lifetime_names)]
+#![allow(clippy::empty_structs_with_brackets)]
 pub mod networkmanager;
 pub mod networkmanager_accesspoint;
 pub mod networkmanager_device;

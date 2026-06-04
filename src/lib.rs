@@ -1,4 +1,3 @@
-mod access_point;
 mod com;
 mod common;
 mod json;
@@ -12,7 +11,8 @@ use std::time::Duration;
 
 use log::{debug, error, info};
 
-use self::json::{Handler, Message, Response};
+use crate::common::access_point::Connector;
+use crate::json::{Handler, Message, Response};
 
 pub const NAME: &str = env!("CARGO_PKG_NAME");
 pub const VERSION: &str = env!("VERSION");
@@ -156,7 +156,7 @@ impl Backend {
                     }
                     Command::SetAccessPointMode(auto) => {
                         if auto && ap.is_none() {
-                            ap = Some(access_point::Connector::new());
+                            ap = Some(Connector::new("esp32-audio".to_owned(), "blubb".to_owned()));
                         } else if !auto && ap.is_some() {
                             ap.take();
                         }
