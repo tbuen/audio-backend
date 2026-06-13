@@ -8,6 +8,7 @@
 #![allow(clippy::empty_structs_with_brackets)]
 pub mod networkmanager;
 pub mod networkmanager_accesspoint;
+pub mod networkmanager_connection_active;
 pub mod networkmanager_device;
 pub mod networkmanager_settings;
 pub mod networkmanager_settings_connection;

@@ -156,7 +156,10 @@ impl Backend {
                     }
                     Command::SetAccessPointMode(auto) => {
                         if auto && ap.is_none() {
-                            ap = Some(Connector::new("esp32-audio".to_owned(), "blubb".to_owned()));
+                            ap = Some(Connector::new(
+                                "esp32-audio".to_owned(),
+                                "secret-wifi-key".to_owned(),
+                            ));
                         } else if !auto && ap.is_some() {
                             ap.take();
                         }
