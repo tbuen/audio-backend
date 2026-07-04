@@ -38,7 +38,7 @@ struct Request<'a> {
     jsonrpc: &'a str,
     method: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    params: Option<bool>,
+    params: Option<Value>,
     id: u32,
 }
 
@@ -52,14 +52,14 @@ struct Response<'a> {
 }
 
 impl Handler {
-    pub(crate) fn build_request(&self, method: &'static str) -> String {
+    pub(crate) fn build_request(&self, method: &'static str, params: Option<Value>) -> String {
         let id = self.id.get() + 1;
         self.id.set(id);
         self.map.borrow_mut().insert(id, method);
         let request = Request {
             jsonrpc: RPC_VERSION,
             method,
-            params: None,
+            params,
             id,
         };
         serde_json::to_string(&request).unwrap()

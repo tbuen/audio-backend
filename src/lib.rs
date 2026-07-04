@@ -21,22 +21,27 @@ pub struct Backend {
     handle: Option<JoinHandle<()>>,
     sender: Sender<Command>,
     receiver: Cell<Option<Receiver<Event>>>,
-    direct: Arc<(Mutex<bool>, Condvar)>,
+    shared: Arc<(Mutex<SharedData>, Condvar)>,
     //database: Database,
 }
 
 pub enum Event {
     Connected(Con, Version),
     Disconnected,
-    ScanResult(Result<Vec<Network>, Error>),
-    NetworkList(Result<Vec<String>, Error>),
+    ScanResult(Result<Vec<Network>, RemoteError>),
+    NetworkList(Result<Vec<String>, RemoteError>),
+    SetNetwork(Result<(), RemoteError>),
+    DeleteNetwork(Result<(), RemoteError>),
     //Reload(Reload),
 }
 
 #[derive(Debug)]
-pub struct Error {
-    _code: i16,
-    _message: String,
+pub struct NotConnectedError;
+
+#[derive(Debug)]
+pub struct RemoteError {
+    pub code: i16,
+    pub message: String,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +73,12 @@ enum Command {
     Quit,
 }
 
+#[derive(Default)]
+struct SharedData {
+    connected: bool,
+    ap_mode: bool,
+}
+
 //pub enum Reload {
 //    Start,
 //    Step(Option<(usize, usize)>),
@@ -79,21 +90,21 @@ impl Backend {
         let (sender, rx) = mpsc::channel();
         let (tx, receiver) = mpsc::channel();
         let receiver = Cell::new(Some(receiver));
-        let direct = Arc::new((Mutex::new(false), Condvar::new()));
-        let direct_thread = Arc::clone(&direct);
+        let shared = Arc::new((Mutex::new(SharedData::default()), Condvar::new()));
+        let shared_thread = shared.clone();
         //let database = Database::new(sender.clone());
         let handle = {
             //let database = database.clone();
             Builder::new()
                 .name("audio:backend".into())
-                .spawn(move || Self::thread(tx, rx, direct_thread))
+                .spawn(move || Self::thread(tx, rx, shared_thread))
                 .unwrap()
         };
         Self {
             handle: Some(handle),
             sender,
             receiver,
-            direct,
+            shared,
             //database,
         }
     }
@@ -103,35 +114,59 @@ impl Backend {
     }
 
     pub fn get_access_point_mode(&self) -> bool {
-        let (mutex, cvar) = &*self.direct;
+        let (mutex, cvar) = &*self.shared;
         let mut data = mutex.lock().unwrap();
         self.sender.send(Command::GetAccessPointMode).unwrap();
         data = cvar.wait(data).unwrap();
-        *data
+        data.ap_mode
     }
 
     pub fn set_access_point_mode(&self, auto: bool) {
         self.sender.send(Command::SetAccessPointMode(auto)).unwrap();
     }
 
-    pub fn get_wifi_scan_result(&self) {
+    pub fn get_wifi_scan_result(&self) -> Result<(), NotConnectedError> {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(NotConnectedError);
+        }
         self.sender.send(Command::GetWifiScanResult).unwrap();
+        Ok(())
     }
 
-    pub fn get_wifi_network_list(&self) {
+    pub fn get_wifi_network_list(&self) -> Result<(), NotConnectedError> {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(NotConnectedError);
+        }
         self.sender.send(Command::GetWifiNetworkList).unwrap();
+        Ok(())
     }
 
-    pub fn set_wifi_network(&self, ssid: String, key: String) {
+    pub fn set_wifi_network(&self, ssid: String, key: String) -> Result<(), NotConnectedError> {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(NotConnectedError);
+        }
         self.sender
             .send(Command::SetWifiNetwork { ssid, key })
             .unwrap();
+        Ok(())
     }
 
-    pub fn delete_wifi_network(&self, ssid: String) {
+    pub fn delete_wifi_network(&self, ssid: String) -> Result<(), NotConnectedError> {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(NotConnectedError);
+        }
         self.sender
             .send(Command::DeleteWifiNetwork { ssid })
             .unwrap();
+        Ok(())
     }
 
     //pub fn database(&self) -> Database {
@@ -139,10 +174,10 @@ impl Backend {
     //}
 
     //fn thread(tx: Sender<Event>, rx: Receiver<Command>, database: Database) {
-    fn thread(tx: Sender<Event>, rx: Receiver<Command>, direct: Arc<(Mutex<bool>, Condvar)>) {
+    fn thread(tx: Sender<Event>, rx: Receiver<Command>, shared: Arc<(Mutex<SharedData>, Condvar)>) {
         let com = com::Com::new();
         let json = Handler::default();
-        let (mutex, cvar) = &*direct;
+        let (mutex, cvar) = &*shared;
         let mut ap = None;
         let mut mode = None;
 
@@ -151,7 +186,7 @@ impl Backend {
                 match cmd {
                     Command::GetAccessPointMode => {
                         let mut data = mutex.lock().unwrap();
-                        *data = ap.is_some();
+                        data.ap_mode = ap.is_some();
                         cvar.notify_one();
                     }
                     Command::SetAccessPointMode(auto) => {
@@ -195,6 +230,8 @@ impl Backend {
                     }
                     com::Event::Disconnected => {
                         info!("Disconnected!");
+                        let mut data = mutex.lock().unwrap();
+                        data.connected = false;
                         mode.take();
                         tx.send(Event::Disconnected).unwrap();
                     }
@@ -203,7 +240,15 @@ impl Backend {
                         if let Some(m) = json.parse(&msg) {
                             debug!("Backend received valid message :-)");
                             //Self::handle_message(m, &com, &mut rpc, &tx, &database);
-                            Self::handle_message(m, &com, &json, &tx, &mut mode);
+                            let mut data = mutex.lock().unwrap();
+                            Self::handle_message(
+                                m,
+                                &com,
+                                &json,
+                                &tx,
+                                &mut mode,
+                                &mut data.connected,
+                            );
                         }
                         //tx.send(Event::Connected).unwrap();
                     }
@@ -220,6 +265,7 @@ impl Backend {
         tx: &Sender<Event>,
         //database: &Database,
         mode: &mut Option<String>,
+        connected: &mut bool,
     ) {
         match msg {
             Message::Response(resp) => match resp {
@@ -242,6 +288,7 @@ impl Backend {
                                 esp_idf: about.esp_idf,
                             },
                         );
+                        *connected = true;
                         tx.send(evt).unwrap();
                     }
                     Err(e) => error!("Could not get InfoAbout: {e}"),
@@ -259,22 +306,52 @@ impl Backend {
                         tx.send(evt).unwrap();
                     }
                     Err(e) => {
-                        let evt = Event::ScanResult(Err(Error {
-                            _code: e.code,
-                            _message: e.message,
+                        let evt = Event::ScanResult(Err(RemoteError {
+                            code: e.code,
+                            message: e.message,
                         }));
                         tx.send(evt).unwrap();
                     }
                 },
                 Response::NetworkList(res) => match res {
                     Ok(list) => {
-                        let evt = Event::NetworkList(Ok(list));
+                        let mut networks = Vec::new();
+                        for e in list {
+                            networks.push(e.ssid);
+                        }
+                        let evt = Event::NetworkList(Ok(networks));
                         tx.send(evt).unwrap();
                     }
                     Err(e) => {
-                        let evt = Event::NetworkList(Err(Error {
-                            _code: e.code,
-                            _message: e.message,
+                        let evt = Event::NetworkList(Err(RemoteError {
+                            code: e.code,
+                            message: e.message,
+                        }));
+                        tx.send(evt).unwrap();
+                    }
+                },
+                Response::SetNetwork(res) => match res {
+                    Ok(_empty) => {
+                        let evt = Event::SetNetwork(Ok(()));
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => {
+                        let evt = Event::SetNetwork(Err(RemoteError {
+                            code: e.code,
+                            message: e.message,
+                        }));
+                        tx.send(evt).unwrap();
+                    }
+                },
+                Response::DeleteNetwork(res) => match res {
+                    Ok(_empty) => {
+                        let evt = Event::DeleteNetwork(Ok(()));
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => {
+                        let evt = Event::DeleteNetwork(Err(RemoteError {
+                            code: e.code,
+                            message: e.message,
                         }));
                         tx.send(evt).unwrap();
                     }

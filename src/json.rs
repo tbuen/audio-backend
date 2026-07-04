@@ -1,5 +1,6 @@
 use log::error;
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::common::jsonrpc;
 
@@ -23,9 +24,12 @@ pub(crate) enum Message {
 pub(crate) enum Response {
     InfoCon(Result<Con, jsonrpc::ExecError>),
     InfoAbout(Result<About, jsonrpc::ExecError>),
-    ScanResult(Result<Vec<Network>, jsonrpc::ExecError>),
-    NetworkList(Result<Vec<String>, jsonrpc::ExecError>),
+    ScanResult(Result<Vec<ScannedNetwork>, jsonrpc::ExecError>),
+    NetworkList(Result<Vec<StoredNetwork>, jsonrpc::ExecError>),
+    SetNetwork(Result<Empty, jsonrpc::ExecError>),
+    DeleteNetwork(Result<Empty, jsonrpc::ExecError>),
 }
+
 //#[derive(Deserialize)]
 //#[serde(untagged)]
 //pub(crate) enum RpcResult {
@@ -50,34 +54,46 @@ pub(crate) struct About {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct Network {
+pub(crate) struct ScannedNetwork {
     pub ssid: String,
     pub rssi: i8,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct StoredNetwork {
+    pub ssid: String,
+}
+
+#[allow(clippy::empty_structs_with_brackets)]
+#[derive(Deserialize)]
+pub(crate) struct Empty {}
+
 impl Handler {
     pub(crate) fn get_info_con(&self) -> String {
-        self.jsonrpc.build_request(GET_INFO_CON)
+        self.jsonrpc.build_request(GET_INFO_CON, None)
     }
 
     pub(crate) fn get_info_about(&self) -> String {
-        self.jsonrpc.build_request(GET_INFO_ABOUT)
+        self.jsonrpc.build_request(GET_INFO_ABOUT, None)
     }
 
     pub(crate) fn get_wifi_scan_result(&self) -> String {
-        self.jsonrpc.build_request(GET_WIFI_SCAN_RESULT)
+        self.jsonrpc.build_request(GET_WIFI_SCAN_RESULT, None)
     }
 
     pub(crate) fn get_wifi_network_list(&self) -> String {
-        self.jsonrpc.build_request(GET_WIFI_NETWORK_LIST)
+        self.jsonrpc.build_request(GET_WIFI_NETWORK_LIST, None)
     }
 
-    pub(crate) fn set_wifi_network(&self, _ssid: &str, _key: &str) -> String {
-        self.jsonrpc.build_request(SET_WIFI_NETWORK)
+    pub(crate) fn set_wifi_network(&self, ssid: &str, key: &str) -> String {
+        let params = json!({"ssid":ssid,"key":key});
+        self.jsonrpc.build_request(SET_WIFI_NETWORK, Some(params))
     }
 
-    pub(crate) fn delete_wifi_network(&self, _ssid: &str) -> String {
-        self.jsonrpc.build_request(DELETE_WIFI_NETWORK)
+    pub(crate) fn delete_wifi_network(&self, ssid: &str) -> String {
+        let params = json!({"ssid":ssid});
+        self.jsonrpc
+            .build_request(DELETE_WIFI_NETWORK, Some(params))
     }
 
     pub(crate) fn parse(&self, msg: &str) -> Option<Message> {
@@ -136,6 +152,26 @@ impl Handler {
                             }
                         },
                         Err(e) => Some(Message::Response(Response::NetworkList(Err(e)))),
+                    },
+                    SET_WIFI_NETWORK => match data {
+                        Ok(v) => match serde_json::from_value(v) {
+                            Ok(o) => Some(Message::Response(Response::SetNetwork(Ok(o)))),
+                            Err(e) => {
+                                error!("Could not parse response: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => Some(Message::Response(Response::SetNetwork(Err(e)))),
+                    },
+                    DELETE_WIFI_NETWORK => match data {
+                        Ok(v) => match serde_json::from_value(v) {
+                            Ok(o) => Some(Message::Response(Response::DeleteNetwork(Ok(o)))),
+                            Err(e) => {
+                                error!("Could not parse response: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => Some(Message::Response(Response::DeleteNetwork(Err(e)))),
                     },
                     _ => {
                         error!("Received response with unknown method: {method}");
