@@ -26,9 +26,12 @@ pub struct Backend {
 }
 
 pub enum Event {
-    Connected(Con, Version),
+    Connected,
     Disconnected,
+    InfoConnection(Result<Connection, RemoteError>),
+    InfoAbout(Result<About, RemoteError>),
     InfoMemory(Result<Memory, RemoteError>),
+    InfoSPIFlash(Result<SPIFlash, RemoteError>),
     ScanResult(Result<Vec<Network>, RemoteError>),
     NetworkList(Result<Vec<String>, RemoteError>),
     SetNetwork(Result<(), RemoteError>),
@@ -46,25 +49,42 @@ pub struct RemoteError {
 }
 
 #[derive(Debug, Clone)]
-pub struct Con {
+pub struct Connection {
     pub mode: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct Version {
+pub struct About {
     pub project: String,
     pub version: String,
     pub esp_idf: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct Memory {
     pub heap: Heap,
 }
 
+#[derive(Debug, Clone)]
 pub struct Heap {
     pub allocated: u32,
     pub free: u32,
     pub minimum_free: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SPIFlash {
+    pub total: u32,
+    pub free: u32,
+    pub files: Vec<File>,
+}
+
+#[derive(Debug, Clone)]
+pub struct File {
+    pub name: String,
+    pub content_type: String,
+    pub size: u32,
+    pub md5: String,
 }
 
 #[derive(Debug, Clone)]
@@ -76,7 +96,10 @@ pub struct Network {
 enum Command {
     GetAccessPointMode,
     SetAccessPointMode(bool),
+    GetInfoConnection,
+    GetInfoAbout,
     GetInfoMemory,
+    GetInfoSPIFlash,
     GetWifiScanResult,
     GetWifiNetworkList,
     SetWifiNetwork { ssid: String, key: String },
@@ -137,6 +160,26 @@ impl Backend {
         self.sender.send(Command::SetAccessPointMode(auto)).unwrap();
     }
 
+    pub fn get_info_connection(&self) -> Result<(), NotConnectedError> {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(NotConnectedError);
+        }
+        self.sender.send(Command::GetInfoConnection).unwrap();
+        Ok(())
+    }
+
+    pub fn get_info_about(&self) -> Result<(), NotConnectedError> {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(NotConnectedError);
+        }
+        self.sender.send(Command::GetInfoAbout).unwrap();
+        Ok(())
+    }
+
     pub fn get_info_memory(&self) -> Result<(), NotConnectedError> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
@@ -144,6 +187,16 @@ impl Backend {
             return Err(NotConnectedError);
         }
         self.sender.send(Command::GetInfoMemory).unwrap();
+        Ok(())
+    }
+
+    pub fn get_info_spiflash(&self) -> Result<(), NotConnectedError> {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(NotConnectedError);
+        }
+        self.sender.send(Command::GetInfoSPIFlash).unwrap();
         Ok(())
     }
 
@@ -201,7 +254,6 @@ impl Backend {
         let json = Handler::default();
         let (mutex, cvar) = &*shared;
         let mut ap = None;
-        let mut mode = None;
 
         loop {
             if let Ok(cmd) = rx.try_recv() {
@@ -221,8 +273,17 @@ impl Backend {
                             ap.take();
                         }
                     }
+                    Command::GetInfoConnection => {
+                        com.send(json.get_info_connection());
+                    }
+                    Command::GetInfoAbout => {
+                        com.send(json.get_info_about());
+                    }
                     Command::GetInfoMemory => {
                         com.send(json.get_info_memory());
+                    }
+                    Command::GetInfoSPIFlash => {
+                        com.send(json.get_info_spiflash());
                     }
                     Command::GetWifiScanResult => {
                         com.send(json.get_wifi_scan_result());
@@ -251,13 +312,14 @@ impl Backend {
                 match event {
                     com::Event::Connected => {
                         info!("Connected!");
-                        com.send(json.get_info_con());
+                        let mut data = mutex.lock().unwrap();
+                        data.connected = true;
+                        tx.send(Event::Connected).unwrap();
                     }
                     com::Event::Disconnected => {
                         info!("Disconnected!");
                         let mut data = mutex.lock().unwrap();
                         data.connected = false;
-                        mode.take();
                         tx.send(Event::Disconnected).unwrap();
                     }
                     com::Event::Message(msg) => {
@@ -265,15 +327,7 @@ impl Backend {
                         if let Some(m) = json.parse(&msg) {
                             debug!("Backend received valid message :-)");
                             //Self::handle_message(m, &com, &mut rpc, &tx, &database);
-                            let mut data = mutex.lock().unwrap();
-                            Self::handle_message(
-                                m,
-                                &com,
-                                &json,
-                                &tx,
-                                &mut mode,
-                                &mut data.connected,
-                            );
+                            Self::handle_message(m, &com, &json, &tx);
                         }
                         //tx.send(Event::Connected).unwrap();
                     }
@@ -285,35 +339,29 @@ impl Backend {
 
     fn handle_message(
         msg: Message,
-        com: &com::Com,
-        json: &Handler,
+        _com: &com::Com,
+        _json: &Handler,
         tx: &Sender<Event>,
         //database: &Database,
-        mode: &mut Option<String>,
-        connected: &mut bool,
     ) {
         match msg {
             Message::Response(resp) => match resp {
-                Response::InfoCon(res) => match res {
-                    Ok(con) => {
-                        mode.replace(con.mode);
-                        com.send(json.get_info_about());
+                Response::InfoConnection(res) => match res {
+                    Ok(connection) => {
+                        let evt = Event::InfoConnection(Ok(Connection {
+                            mode: connection.mode,
+                        }));
+                        tx.send(evt).unwrap();
                     }
-                    Err(e) => error!("Could not get InfoCon: {e}"),
+                    Err(e) => error!("Could not get InfoConnection: {e}"),
                 },
                 Response::InfoAbout(res) => match res {
                     Ok(about) => {
-                        let evt = Event::Connected(
-                            Con {
-                                mode: mode.as_ref().unwrap().to_owned(),
-                            },
-                            Version {
-                                project: about.project,
-                                version: about.version,
-                                esp_idf: about.esp_idf,
-                            },
-                        );
-                        *connected = true;
+                        let evt = Event::InfoAbout(Ok(About {
+                            project: about.project,
+                            version: about.version,
+                            esp_idf: about.esp_idf,
+                        }));
                         tx.send(evt).unwrap();
                     }
                     Err(e) => error!("Could not get InfoAbout: {e}"),
@@ -326,6 +374,26 @@ impl Backend {
                                 free: info.heap.free,
                                 minimum_free: info.heap.minimum_free,
                             },
+                        }));
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => error!("Could not get InfoMemory: {e}"),
+                },
+                Response::InfoSPIFlash(res) => match res {
+                    Ok(info) => {
+                        let mut files = Vec::new();
+                        for f in info.files {
+                            files.push(File {
+                                name: f.name,
+                                content_type: f.content_type,
+                                size: f.size,
+                                md5: f.md5,
+                            });
+                        }
+                        let evt = Event::InfoSPIFlash(Ok(SPIFlash {
+                            total: info.total,
+                            free: info.free,
+                            files,
                         }));
                         tx.send(evt).unwrap();
                     }

@@ -4,9 +4,10 @@ use serde_json::json;
 
 use crate::common::jsonrpc;
 
-const GET_INFO_CON: &str = "get-info-con";
+const GET_INFO_CONNECTION: &str = "get-info-connection";
 const GET_INFO_ABOUT: &str = "get-info-about";
 const GET_INFO_MEMORY: &str = "get-info-memory";
+const GET_INFO_SPIFLASH: &str = "get-info-spiflash";
 const GET_WIFI_SCAN_RESULT: &str = "get-wifi-scan-result";
 const GET_WIFI_NETWORK_LIST: &str = "get-wifi-network-list";
 const SET_WIFI_NETWORK: &str = "set-wifi-network";
@@ -23,9 +24,10 @@ pub(crate) enum Message {
 }
 
 pub(crate) enum Response {
-    InfoCon(Result<Con, jsonrpc::ExecError>),
+    InfoConnection(Result<Connection, jsonrpc::ExecError>),
     InfoAbout(Result<About, jsonrpc::ExecError>),
     InfoMemory(Result<Memory, jsonrpc::ExecError>),
+    InfoSPIFlash(Result<SPIFlash, jsonrpc::ExecError>),
     ScanResult(Result<Vec<ScannedNetwork>, jsonrpc::ExecError>),
     NetworkList(Result<Vec<StoredNetwork>, jsonrpc::ExecError>),
     SetNetwork(Result<Empty, jsonrpc::ExecError>),
@@ -43,7 +45,7 @@ pub(crate) enum Response {
 //}
 
 #[derive(Deserialize)]
-pub(crate) struct Con {
+pub(crate) struct Connection {
     pub mode: String,
 }
 
@@ -69,6 +71,22 @@ pub(crate) struct Heap {
 }
 
 #[derive(Deserialize)]
+pub(crate) struct SPIFlash {
+    pub total: u32,
+    pub free: u32,
+    pub files: Vec<File>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct File {
+    pub name: String,
+    #[serde(rename = "content-type")]
+    pub content_type: String,
+    pub size: u32,
+    pub md5: String,
+}
+
+#[derive(Deserialize)]
 pub(crate) struct ScannedNetwork {
     pub ssid: String,
     pub rssi: i8,
@@ -84,8 +102,8 @@ pub(crate) struct StoredNetwork {
 pub(crate) struct Empty {}
 
 impl Handler {
-    pub(crate) fn get_info_con(&self) -> String {
-        self.jsonrpc.build_request(GET_INFO_CON, None)
+    pub(crate) fn get_info_connection(&self) -> String {
+        self.jsonrpc.build_request(GET_INFO_CONNECTION, None)
     }
 
     pub(crate) fn get_info_about(&self) -> String {
@@ -94,6 +112,10 @@ impl Handler {
 
     pub(crate) fn get_info_memory(&self) -> String {
         self.jsonrpc.build_request(GET_INFO_MEMORY, None)
+    }
+
+    pub(crate) fn get_info_spiflash(&self) -> String {
+        self.jsonrpc.build_request(GET_INFO_SPIFLASH, None)
     }
 
     pub(crate) fn get_wifi_scan_result(&self) -> String {
@@ -132,15 +154,15 @@ impl Handler {
         if let Some(msg) = self.jsonrpc.parse(msg) {
             match msg {
                 jsonrpc::Message::Response { method, data } => match method {
-                    GET_INFO_CON => match data {
+                    GET_INFO_CONNECTION => match data {
                         Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::InfoCon(Ok(o)))),
+                            Ok(o) => Some(Message::Response(Response::InfoConnection(Ok(o)))),
                             Err(e) => {
                                 error!("Could not parse response: {e}");
                                 None
                             }
                         },
-                        Err(e) => Some(Message::Response(Response::InfoCon(Err(e)))),
+                        Err(e) => Some(Message::Response(Response::InfoConnection(Err(e)))),
                     },
                     GET_INFO_ABOUT => match data {
                         Ok(v) => match serde_json::from_value(v) {
@@ -161,6 +183,16 @@ impl Handler {
                             }
                         },
                         Err(e) => Some(Message::Response(Response::InfoMemory(Err(e)))),
+                    },
+                    GET_INFO_SPIFLASH => match data {
+                        Ok(v) => match serde_json::from_value(v) {
+                            Ok(o) => Some(Message::Response(Response::InfoSPIFlash(Ok(o)))),
+                            Err(e) => {
+                                error!("Could not parse response: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => Some(Message::Response(Response::InfoSPIFlash(Err(e)))),
                     },
                     GET_WIFI_SCAN_RESULT => match data {
                         Ok(v) => match serde_json::from_value(v) {
