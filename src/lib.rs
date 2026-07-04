@@ -28,6 +28,7 @@ pub struct Backend {
 pub enum Event {
     Connected(Con, Version),
     Disconnected,
+    InfoMemory(Result<Memory, RemoteError>),
     ScanResult(Result<Vec<Network>, RemoteError>),
     NetworkList(Result<Vec<String>, RemoteError>),
     SetNetwork(Result<(), RemoteError>),
@@ -56,6 +57,16 @@ pub struct Version {
     pub esp_idf: String,
 }
 
+pub struct Memory {
+    pub heap: Heap,
+}
+
+pub struct Heap {
+    pub allocated: u32,
+    pub free: u32,
+    pub minimum_free: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct Network {
     pub ssid: String,
@@ -65,6 +76,7 @@ pub struct Network {
 enum Command {
     GetAccessPointMode,
     SetAccessPointMode(bool),
+    GetInfoMemory,
     GetWifiScanResult,
     GetWifiNetworkList,
     SetWifiNetwork { ssid: String, key: String },
@@ -123,6 +135,16 @@ impl Backend {
 
     pub fn set_access_point_mode(&self, auto: bool) {
         self.sender.send(Command::SetAccessPointMode(auto)).unwrap();
+    }
+
+    pub fn get_info_memory(&self) -> Result<(), NotConnectedError> {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(NotConnectedError);
+        }
+        self.sender.send(Command::GetInfoMemory).unwrap();
+        Ok(())
     }
 
     pub fn get_wifi_scan_result(&self) -> Result<(), NotConnectedError> {
@@ -198,6 +220,9 @@ impl Backend {
                         } else if !auto && ap.is_some() {
                             ap.take();
                         }
+                    }
+                    Command::GetInfoMemory => {
+                        com.send(json.get_info_memory());
                     }
                     Command::GetWifiScanResult => {
                         com.send(json.get_wifi_scan_result());
@@ -292,6 +317,19 @@ impl Backend {
                         tx.send(evt).unwrap();
                     }
                     Err(e) => error!("Could not get InfoAbout: {e}"),
+                },
+                Response::InfoMemory(res) => match res {
+                    Ok(info) => {
+                        let evt = Event::InfoMemory(Ok(Memory {
+                            heap: Heap {
+                                allocated: info.heap.allocated,
+                                free: info.heap.free,
+                                minimum_free: info.heap.minimum_free,
+                            },
+                        }));
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => error!("Could not get InfoMemory: {e}"),
                 },
                 Response::ScanResult(res) => match res {
                     Ok(list) => {
