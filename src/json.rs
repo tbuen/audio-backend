@@ -12,6 +12,7 @@ const GET_WIFI_SCAN_RESULT: &str = "get-wifi-scan-result";
 const GET_WIFI_NETWORK_LIST: &str = "get-wifi-network-list";
 const SET_WIFI_NETWORK: &str = "set-wifi-network";
 const DELETE_WIFI_NETWORK: &str = "delete-wifi-network";
+const GET_FILE_LIST: &str = "get-file-list";
 
 #[derive(Default)]
 pub(crate) struct Handler {
@@ -32,6 +33,7 @@ pub(crate) enum Response {
     NetworkList(Result<Vec<StoredNetwork>, jsonrpc::ExecError>),
     SetNetwork(Result<Empty, jsonrpc::ExecError>),
     DeleteNetwork(Result<Empty, jsonrpc::ExecError>),
+    FileList(Result<FileList, jsonrpc::ExecError>),
 }
 
 //#[derive(Deserialize)]
@@ -97,6 +99,12 @@ pub(crate) struct StoredNetwork {
     pub ssid: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct FileList {
+    pub dirs: Option<Vec<String>>,
+    pub files: Option<Vec<String>>,
+}
+
 #[allow(clippy::empty_structs_with_brackets)]
 #[derive(Deserialize)]
 pub(crate) struct Empty {}
@@ -135,6 +143,11 @@ impl Handler {
         let params = json!({"ssid":ssid});
         self.jsonrpc
             .build_request(DELETE_WIFI_NETWORK, Some(params))
+    }
+
+    pub(crate) fn get_file_list(&self, path: Option<&str>) -> String {
+        let params = path.map(|p| json!({"path":p}));
+        self.jsonrpc.build_request(GET_FILE_LIST, params)
     }
 
     pub(crate) fn parse(&self, msg: &str) -> Option<Message> {
@@ -233,6 +246,16 @@ impl Handler {
                             }
                         },
                         Err(e) => Some(Message::Response(Response::DeleteNetwork(Err(e)))),
+                    },
+                    GET_FILE_LIST => match data {
+                        Ok(v) => match serde_json::from_value(v) {
+                            Ok(o) => Some(Message::Response(Response::FileList(Ok(o)))),
+                            Err(e) => {
+                                error!("Could not parse response: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => Some(Message::Response(Response::FileList(Err(e)))),
                     },
                     _ => {
                         error!("Received response with unknown method: {method}");

@@ -3,9 +3,10 @@ mod common;
 mod json;
 
 use std::cell::Cell;
-use std::sync::mpsc;
+use std::fmt;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{MutexGuard, mpsc};
 use std::thread::{Builder, JoinHandle};
 use std::time::Duration;
 
@@ -19,7 +20,8 @@ pub const VERSION: &str = env!("VERSION");
 
 pub struct Backend {
     handle: Option<JoinHandle<()>>,
-    sender: Sender<Command>,
+    cmd_sender: Sender<Command>,
+    evt_sender: Sender<Event>,
     receiver: Cell<Option<Receiver<Event>>>,
     shared: Arc<(Mutex<SharedData>, Condvar)>,
     //database: Database,
@@ -36,13 +38,17 @@ pub enum Event {
     NetworkList(Result<Vec<String>, RemoteError>),
     SetNetwork(Result<(), RemoteError>),
     DeleteNetwork(Result<(), RemoteError>),
+    FileSyncStatus,
     //Reload(Reload),
 }
 
 #[derive(Debug)]
-pub struct NotConnectedError;
+pub enum Error {
+    NotConnected,
+    AlreadyRunning,
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RemoteError {
     pub code: i16,
     pub message: String,
@@ -93,6 +99,18 @@ pub struct Network {
     pub rssi: i8,
 }
 
+#[derive(Default, Debug, Clone)]
+pub enum SyncStatus {
+    #[default]
+    Idle,
+    Running,
+    Done(u16),
+    Aborted,
+    Timeout,
+    Disconnected,
+    Error(RemoteError),
+}
+
 enum Command {
     GetAccessPointMode,
     SetAccessPointMode(bool),
@@ -104,7 +122,7 @@ enum Command {
     GetWifiNetworkList,
     SetWifiNetwork { ssid: String, key: String },
     DeleteWifiNetwork { ssid: String },
-    //Resync,
+    ResyncFiles,
     Quit,
 }
 
@@ -112,6 +130,7 @@ enum Command {
 struct SharedData {
     connected: bool,
     ap_mode: bool,
+    sync_files: SyncStatus,
 }
 
 //pub enum Reload {
@@ -122,8 +141,9 @@ struct SharedData {
 
 impl Backend {
     pub fn new() -> Self {
-        let (sender, rx) = mpsc::channel();
+        let (cmd_sender, rx) = mpsc::channel();
         let (tx, receiver) = mpsc::channel();
+        let evt_sender = tx.clone();
         let receiver = Cell::new(Some(receiver));
         let shared = Arc::new((Mutex::new(SharedData::default()), Condvar::new()));
         let shared_thread = shared.clone();
@@ -137,7 +157,8 @@ impl Backend {
         };
         Self {
             handle: Some(handle),
-            sender,
+            cmd_sender,
+            evt_sender,
             receiver,
             shared,
             //database,
@@ -151,97 +172,120 @@ impl Backend {
     pub fn get_access_point_mode(&self) -> bool {
         let (mutex, cvar) = &*self.shared;
         let mut data = mutex.lock().unwrap();
-        self.sender.send(Command::GetAccessPointMode).unwrap();
+        self.cmd_sender.send(Command::GetAccessPointMode).unwrap();
         data = cvar.wait(data).unwrap();
         data.ap_mode
     }
 
     pub fn set_access_point_mode(&self, auto: bool) {
-        self.sender.send(Command::SetAccessPointMode(auto)).unwrap();
+        self.cmd_sender
+            .send(Command::SetAccessPointMode(auto))
+            .unwrap();
     }
 
-    pub fn get_info_connection(&self) -> Result<(), NotConnectedError> {
+    pub fn get_info_connection(&self) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if !data.connected {
-            return Err(NotConnectedError);
+            return Err(Error::NotConnected);
         }
-        self.sender.send(Command::GetInfoConnection).unwrap();
+        self.cmd_sender.send(Command::GetInfoConnection).unwrap();
         Ok(())
     }
 
-    pub fn get_info_about(&self) -> Result<(), NotConnectedError> {
+    pub fn get_info_about(&self) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if !data.connected {
-            return Err(NotConnectedError);
+            return Err(Error::NotConnected);
         }
-        self.sender.send(Command::GetInfoAbout).unwrap();
+        self.cmd_sender.send(Command::GetInfoAbout).unwrap();
         Ok(())
     }
 
-    pub fn get_info_memory(&self) -> Result<(), NotConnectedError> {
+    pub fn get_info_memory(&self) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if !data.connected {
-            return Err(NotConnectedError);
+            return Err(Error::NotConnected);
         }
-        self.sender.send(Command::GetInfoMemory).unwrap();
+        self.cmd_sender.send(Command::GetInfoMemory).unwrap();
         Ok(())
     }
 
-    pub fn get_info_spiflash(&self) -> Result<(), NotConnectedError> {
+    pub fn get_info_spiflash(&self) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if !data.connected {
-            return Err(NotConnectedError);
+            return Err(Error::NotConnected);
         }
-        self.sender.send(Command::GetInfoSPIFlash).unwrap();
+        self.cmd_sender.send(Command::GetInfoSPIFlash).unwrap();
         Ok(())
     }
 
-    pub fn get_wifi_scan_result(&self) -> Result<(), NotConnectedError> {
+    pub fn get_wifi_scan_result(&self) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if !data.connected {
-            return Err(NotConnectedError);
+            return Err(Error::NotConnected);
         }
-        self.sender.send(Command::GetWifiScanResult).unwrap();
+        self.cmd_sender.send(Command::GetWifiScanResult).unwrap();
         Ok(())
     }
 
-    pub fn get_wifi_network_list(&self) -> Result<(), NotConnectedError> {
+    pub fn get_wifi_network_list(&self) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if !data.connected {
-            return Err(NotConnectedError);
+            return Err(Error::NotConnected);
         }
-        self.sender.send(Command::GetWifiNetworkList).unwrap();
+        self.cmd_sender.send(Command::GetWifiNetworkList).unwrap();
         Ok(())
     }
 
-    pub fn set_wifi_network(&self, ssid: String, key: String) -> Result<(), NotConnectedError> {
+    pub fn set_wifi_network(&self, ssid: String, key: String) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if !data.connected {
-            return Err(NotConnectedError);
+            return Err(Error::NotConnected);
         }
-        self.sender
+        self.cmd_sender
             .send(Command::SetWifiNetwork { ssid, key })
             .unwrap();
         Ok(())
     }
 
-    pub fn delete_wifi_network(&self, ssid: String) -> Result<(), NotConnectedError> {
+    pub fn delete_wifi_network(&self, ssid: String) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if !data.connected {
-            return Err(NotConnectedError);
+            return Err(Error::NotConnected);
         }
-        self.sender
+        self.cmd_sender
             .send(Command::DeleteWifiNetwork { ssid })
             .unwrap();
         Ok(())
+    }
+
+    pub fn sync_files_start(&self) -> Result<(), Error> {
+        let (mutex, _) = &*self.shared;
+        let mut data = mutex.lock().unwrap();
+        if !data.connected {
+            return Err(Error::NotConnected);
+        }
+        if let SyncStatus::Running = data.sync_files {
+            return Err(Error::AlreadyRunning);
+        }
+        data.sync_files = SyncStatus::Running;
+        self.evt_sender.send(Event::FileSyncStatus).unwrap();
+        self.cmd_sender.send(Command::ResyncFiles).unwrap();
+        Ok(())
+    }
+
+    pub fn sync_files_status(&self) -> SyncStatus {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        data.sync_files.clone()
     }
 
     //pub fn database(&self) -> Database {
@@ -297,6 +341,9 @@ impl Backend {
                     Command::DeleteWifiNetwork { ssid } => {
                         com.send(json.delete_wifi_network(&ssid));
                     }
+                    Command::ResyncFiles => {
+                        com.send(json.get_file_list(None));
+                    }
                     /*Ok(Command::Resync) => {
                         tx.send(Event::Reload(Reload::Start)).unwrap();
                         com.send(rpc.get_file_list(true));
@@ -327,7 +374,8 @@ impl Backend {
                         if let Some(m) = json.parse(&msg) {
                             debug!("Backend received valid message :-)");
                             //Self::handle_message(m, &com, &mut rpc, &tx, &database);
-                            Self::handle_message(m, &com, &json, &tx);
+                            let data = mutex.lock().unwrap();
+                            Self::handle_message(m, &com, &json, &tx, data);
                         }
                         //tx.send(Event::Connected).unwrap();
                     }
@@ -342,6 +390,7 @@ impl Backend {
         _com: &com::Com,
         _json: &Handler,
         tx: &Sender<Event>,
+        mut data: MutexGuard<'_, SharedData>,
         //database: &Database,
     ) {
         match msg {
@@ -462,6 +511,26 @@ impl Backend {
                         tx.send(evt).unwrap();
                     }
                 },
+                Response::FileList(res) => match res {
+                    Ok(list) => {
+                        debug!(
+                            "Received {} dirs and {} files",
+                            list.dirs.map_or(0, |v| v.len()),
+                            list.files.map_or(0, |v| v.len()),
+                        );
+                        data.sync_files = SyncStatus::Done(0);
+                        let evt = Event::FileSyncStatus;
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => {
+                        data.sync_files = SyncStatus::Error(RemoteError {
+                            code: e.code,
+                            message: e.message,
+                        });
+                        let evt = Event::FileSyncStatus;
+                        tx.send(evt).unwrap();
+                    }
+                },
             },
             /*RpcResult::FileList(lst) => {
                   database.update_file_list(lst.files, lst.last);
@@ -518,7 +587,21 @@ impl Default for Backend {
 
 impl Drop for Backend {
     fn drop(&mut self) {
-        self.sender.send(Command::Quit).unwrap();
+        self.cmd_sender.send(Command::Quit).unwrap();
         self.handle.take().unwrap().join().unwrap();
+    }
+}
+
+impl fmt::Display for SyncStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Idle => write!(f, "Idle."),
+            Self::Running => write!(f, "Running."),
+            Self::Done(n) => write!(f, "Done ({n} tracks)."),
+            Self::Aborted => write!(f, "Cancelled by user."),
+            Self::Timeout => write!(f, "Timeout."),
+            Self::Disconnected => write!(f, "Disconnected"),
+            Self::Error(e) => write!(f, "Error: {} [{}].", e.message, e.code),
+        }
     }
 }
