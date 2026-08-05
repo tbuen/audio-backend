@@ -101,6 +101,7 @@ pub(crate) struct StoredNetwork {
 
 #[derive(Deserialize)]
 pub(crate) struct FileList {
+    pub path: String,
     pub dirs: Option<Vec<String>>,
     pub files: Option<Vec<String>>,
 }

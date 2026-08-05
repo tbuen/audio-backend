@@ -3,12 +3,13 @@ mod common;
 mod json;
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::{MutexGuard, mpsc};
 use std::thread::{Builder, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use log::{debug, error, info};
 
@@ -17,6 +18,9 @@ use crate::json::{Handler, Message, Response};
 
 pub const NAME: &str = env!("CARGO_PKG_NAME");
 pub const VERSION: &str = env!("VERSION");
+
+const PARALLEL_REQUESTS: usize = 5;
+const SYNC_TIMEOUT_S: u64 = 2;
 
 pub struct Backend {
     handle: Option<JoinHandle<()>>,
@@ -30,7 +34,7 @@ pub struct Backend {
 pub enum Event {
     Connected,
     Disconnected,
-    InfoConnection(Result<Connection, RemoteError>),
+    InfoConnection(Result<Connection, RemoteError>), // TODO RemoteError gar nicht zurückgeben, NotAllowedInMode vorher checken. Bei RemoteError dann nur log-Ausgabe. Hier wirklich nur Erfolge eventieren
     InfoAbout(Result<About, RemoteError>),
     InfoMemory(Result<Memory, RemoteError>),
     InfoSPIFlash(Result<SPIFlash, RemoteError>),
@@ -38,17 +42,17 @@ pub enum Event {
     NetworkList(Result<Vec<String>, RemoteError>),
     SetNetwork(Result<(), RemoteError>),
     DeleteNetwork(Result<(), RemoteError>),
-    FileSyncStatus,
+    FileSyncStatus(FileSyncStatus),
     //Reload(Reload),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     NotConnected,
     AlreadyRunning,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteError {
     pub code: i16,
     pub message: String,
@@ -99,15 +103,14 @@ pub struct Network {
     pub rssi: i8,
 }
 
-#[derive(Default, Debug, Clone)]
-pub enum SyncStatus {
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub enum FileSyncStatus {
     #[default]
     Idle,
     Running,
-    Done(u16),
-    Aborted,
-    Timeout,
+    Done(u16, Duration),
     Disconnected,
+    Timeout,
     Error(RemoteError),
 }
 
@@ -130,7 +133,26 @@ enum Command {
 struct SharedData {
     connected: bool,
     ap_mode: bool,
-    sync_files: SyncStatus,
+    filesync: FileSync,
+}
+
+#[derive(Default)]
+struct FileSync {
+    running: bool,
+    timestamp: Option<Instant>,
+    map: HashMap<String, FileSyncEntry>,
+}
+
+struct FileSyncEntry {
+    step: FileSyncStep,
+    files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileSyncStep {
+    New,
+    Requested,
+    Received,
 }
 
 //pub enum Reload {
@@ -273,19 +295,17 @@ impl Backend {
         if !data.connected {
             return Err(Error::NotConnected);
         }
-        if let SyncStatus::Running = data.sync_files {
+        if data.filesync.running {
             return Err(Error::AlreadyRunning);
         }
-        data.sync_files = SyncStatus::Running;
-        self.evt_sender.send(Event::FileSyncStatus).unwrap();
+        data.filesync.running = true;
+        data.filesync.map.clear();
+        data.filesync.timestamp = Some(Instant::now());
+        self.evt_sender
+            .send(Event::FileSyncStatus(FileSyncStatus::Running))
+            .unwrap();
         self.cmd_sender.send(Command::ResyncFiles).unwrap();
         Ok(())
-    }
-
-    pub fn sync_files_status(&self) -> SyncStatus {
-        let (mutex, _) = &*self.shared;
-        let data = mutex.lock().unwrap();
-        data.sync_files.clone()
     }
 
     //pub fn database(&self) -> Database {
@@ -368,6 +388,11 @@ impl Backend {
                         let mut data = mutex.lock().unwrap();
                         data.connected = false;
                         tx.send(Event::Disconnected).unwrap();
+                        if data.filesync.running {
+                            data.filesync.running = false;
+                            tx.send(Event::FileSyncStatus(FileSyncStatus::Disconnected))
+                                .unwrap();
+                        }
                     }
                     com::Event::Message(msg) => {
                         debug!("Message: {msg}");
@@ -378,6 +403,51 @@ impl Backend {
                             Self::handle_message(m, &com, &json, &tx, data);
                         }
                         //tx.send(Event::Connected).unwrap();
+                    }
+                }
+            }
+
+            let mut data = mutex.lock().unwrap();
+            if data.filesync.running {
+                let n_total = data.filesync.map.len();
+                let mut n_new = data
+                    .filesync
+                    .map
+                    .values()
+                    .filter(|e| e.step == FileSyncStep::New)
+                    .count();
+                let mut n_req = data
+                    .filesync
+                    .map
+                    .values()
+                    .filter(|e| e.step == FileSyncStep::Requested)
+                    .count();
+                if n_total > 0 && n_new == 0 && n_req == 0 {
+                    info!("sync finished");
+                    data.filesync.running = false;
+                    tx.send(Event::FileSyncStatus(FileSyncStatus::Done(
+                        0,
+                        Duration::from_secs(0),
+                    )))
+                    .unwrap();
+                } else if Instant::now()
+                    > data.filesync.timestamp.unwrap() + Duration::from_secs(SYNC_TIMEOUT_S)
+                {
+                    info!("sync timeout");
+                    data.filesync.running = false;
+                    tx.send(Event::FileSyncStatus(FileSyncStatus::Timeout))
+                        .unwrap();
+                } else if n_new > 0 && n_req < PARALLEL_REQUESTS {
+                    for (k, v) in &mut data.filesync.map {
+                        if v.step == FileSyncStep::New {
+                            com.send(json.get_file_list(Some(k)));
+                            v.step = FileSyncStep::Requested;
+                            n_new -= 1;
+                            n_req += 1;
+                            if n_new == 0 || n_req == PARALLEL_REQUESTS {
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -394,187 +464,211 @@ impl Backend {
         //database: &Database,
     ) {
         match msg {
-            Message::Response(resp) => match resp {
-                Response::InfoConnection(res) => match res {
-                    Ok(connection) => {
-                        let evt = Event::InfoConnection(Ok(Connection {
-                            mode: connection.mode,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
-                    Err(e) => error!("Could not get InfoConnection: {e}"),
-                },
-                Response::InfoAbout(res) => match res {
-                    Ok(about) => {
-                        let evt = Event::InfoAbout(Ok(About {
-                            project: about.project,
-                            version: about.version,
-                            esp_idf: about.esp_idf,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
-                    Err(e) => error!("Could not get InfoAbout: {e}"),
-                },
-                Response::InfoMemory(res) => match res {
-                    Ok(info) => {
-                        let evt = Event::InfoMemory(Ok(Memory {
-                            heap: Heap {
-                                allocated: info.heap.allocated,
-                                free: info.heap.free,
-                                minimum_free: info.heap.minimum_free,
-                            },
-                        }));
-                        tx.send(evt).unwrap();
-                    }
-                    Err(e) => error!("Could not get InfoMemory: {e}"),
-                },
-                Response::InfoSPIFlash(res) => match res {
-                    Ok(info) => {
-                        let mut files = Vec::new();
-                        for f in info.files {
-                            files.push(File {
-                                name: f.name,
-                                content_type: f.content_type,
-                                size: f.size,
-                                md5: f.md5,
+            Message::Response(resp) => {
+                match resp {
+                    Response::InfoConnection(res) => match res {
+                        Ok(connection) => {
+                            let evt = Event::InfoConnection(Ok(Connection {
+                                mode: connection.mode,
+                            }));
+                            tx.send(evt).unwrap();
+                        }
+                        Err(e) => error!("Could not get InfoConnection: {e}"),
+                    },
+                    Response::InfoAbout(res) => match res {
+                        Ok(about) => {
+                            let evt = Event::InfoAbout(Ok(About {
+                                project: about.project,
+                                version: about.version,
+                                esp_idf: about.esp_idf,
+                            }));
+                            tx.send(evt).unwrap();
+                        }
+                        Err(e) => error!("Could not get InfoAbout: {e}"),
+                    },
+                    Response::InfoMemory(res) => match res {
+                        Ok(info) => {
+                            let evt = Event::InfoMemory(Ok(Memory {
+                                heap: Heap {
+                                    allocated: info.heap.allocated,
+                                    free: info.heap.free,
+                                    minimum_free: info.heap.minimum_free,
+                                },
+                            }));
+                            tx.send(evt).unwrap();
+                        }
+                        Err(e) => error!("Could not get InfoMemory: {e}"),
+                    },
+                    Response::InfoSPIFlash(res) => match res {
+                        Ok(info) => {
+                            let mut files = Vec::new();
+                            for f in info.files {
+                                files.push(File {
+                                    name: f.name,
+                                    content_type: f.content_type,
+                                    size: f.size,
+                                    md5: f.md5,
+                                });
+                            }
+                            let evt = Event::InfoSPIFlash(Ok(SPIFlash {
+                                total: info.total,
+                                free: info.free,
+                                files,
+                            }));
+                            tx.send(evt).unwrap();
+                        }
+                        Err(e) => error!("Could not get InfoMemory: {e}"),
+                    },
+                    Response::ScanResult(res) => match res {
+                        Ok(list) => {
+                            let mut networks = Vec::new();
+                            for e in list {
+                                networks.push(Network {
+                                    ssid: e.ssid,
+                                    rssi: e.rssi,
+                                });
+                            }
+                            let evt = Event::ScanResult(Ok(networks));
+                            tx.send(evt).unwrap();
+                        }
+                        Err(e) => {
+                            let evt = Event::ScanResult(Err(RemoteError {
+                                code: e.code,
+                                message: e.message,
+                            }));
+                            tx.send(evt).unwrap();
+                        }
+                    },
+                    Response::NetworkList(res) => match res {
+                        Ok(list) => {
+                            let mut networks = Vec::new();
+                            for e in list {
+                                networks.push(e.ssid);
+                            }
+                            let evt = Event::NetworkList(Ok(networks));
+                            tx.send(evt).unwrap();
+                        }
+                        Err(e) => {
+                            let evt = Event::NetworkList(Err(RemoteError {
+                                code: e.code,
+                                message: e.message,
+                            }));
+                            tx.send(evt).unwrap();
+                        }
+                    },
+                    Response::SetNetwork(res) => match res {
+                        Ok(_empty) => {
+                            let evt = Event::SetNetwork(Ok(()));
+                            tx.send(evt).unwrap();
+                        }
+                        Err(e) => {
+                            let evt = Event::SetNetwork(Err(RemoteError {
+                                code: e.code,
+                                message: e.message,
+                            }));
+                            tx.send(evt).unwrap();
+                        }
+                    },
+                    Response::DeleteNetwork(res) => match res {
+                        Ok(_empty) => {
+                            let evt = Event::DeleteNetwork(Ok(()));
+                            tx.send(evt).unwrap();
+                        }
+                        Err(e) => {
+                            let evt = Event::DeleteNetwork(Err(RemoteError {
+                                code: e.code,
+                                message: e.message,
+                            }));
+                            tx.send(evt).unwrap();
+                        }
+                    },
+                    Response::FileList(res) => match res {
+                        Ok(list) => {
+                            let dl = if let Some(d) = &list.dirs { d.len() } else { 0 };
+                            let fl = if let Some(f) = &list.files {
+                                f.len()
+                            } else {
+                                0
+                            };
+                            debug!("Received {dl} dirs and {fl} files");
+                            let entry = data.filesync.map.entry(list.path.clone()).or_insert(
+                                FileSyncEntry {
+                                    step: FileSyncStep::Requested,
+                                    files: Vec::new(),
+                                },
+                            );
+                            entry.step = FileSyncStep::Received;
+                            if let Some(files) = list.files {
+                                for f in files {
+                                    entry.files.push(f);
+                                }
+                            }
+                            if let Some(dirs) = list.dirs {
+                                for d in dirs {
+                                    let p = format!("{}/{}", list.path, d);
+                                    let entry = FileSyncEntry {
+                                        step: FileSyncStep::New,
+                                        files: Vec::new(),
+                                    };
+                                    data.filesync.map.insert(p, entry);
+                                }
+                            }
+                            data.filesync.timestamp = Some(Instant::now());
+                        }
+                        Err(e) => {
+                            data.filesync.running = false;
+                            let status = FileSyncStatus::Error(RemoteError {
+                                code: e.code,
+                                message: e.message,
                             });
+                            let evt = Event::FileSyncStatus(status);
+                            tx.send(evt).unwrap();
                         }
-                        let evt = Event::InfoSPIFlash(Ok(SPIFlash {
-                            total: info.total,
-                            free: info.free,
-                            files,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
-                    Err(e) => error!("Could not get InfoMemory: {e}"),
-                },
-                Response::ScanResult(res) => match res {
-                    Ok(list) => {
-                        let mut networks = Vec::new();
-                        for e in list {
-                            networks.push(Network {
-                                ssid: e.ssid,
-                                rssi: e.rssi,
-                            });
+                    },
+                }
+            } /*RpcResult::FileList(lst) => {
+                    database.update_file_list(lst.files, lst.last);
+                    if lst.last {
+                        match database.get_unsynced_file() {
+                            Some(f) => {
+                                let p = database.sync_stats();
+                                tx.send(Event::Reload(Reload::Step(Some(p)))).unwrap();
+                                com.send(rpc.get_file_info(f));
+                            }
+                            None => {
+                                tx.send(Event::Reload(Reload::Stop)).unwrap();
+                            }
                         }
-                        let evt = Event::ScanResult(Ok(networks));
-                        tx.send(evt).unwrap();
+                    } else {
+                        tx.send(Event::Reload(Reload::Step(None))).unwrap();
+                        com.send(rpc.get_file_list(false));
                     }
-                    Err(e) => {
-                        let evt = Event::ScanResult(Err(RemoteError {
-                            code: e.code,
-                            message: e.message,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
-                },
-                Response::NetworkList(res) => match res {
-                    Ok(list) => {
-                        let mut networks = Vec::new();
-                        for e in list {
-                            networks.push(e.ssid);
+                }
+                RpcResult::FileInfo(info) => {
+                    database.set_file_info(info);
+                    match database.get_unsynced_file() {
+                        Some(f) => {
+                            let p = database.sync_stats();
+                            tx.send(Event::Reload(Reload::Step(Some(p)))).unwrap();
+                            com.send(rpc.get_file_info(f));
                         }
-                        let evt = Event::NetworkList(Ok(networks));
-                        tx.send(evt).unwrap();
+                        None => {
+                            tx.send(Event::Reload(Reload::Stop)).unwrap();
+                            database.save();
+                        }
                     }
-                    Err(e) => {
-                        let evt = Event::NetworkList(Err(RemoteError {
-                            code: e.code,
-                            message: e.message,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
-                },
-                Response::SetNetwork(res) => match res {
-                    Ok(_empty) => {
-                        let evt = Event::SetNetwork(Ok(()));
-                        tx.send(evt).unwrap();
-                    }
-                    Err(e) => {
-                        let evt = Event::SetNetwork(Err(RemoteError {
-                            code: e.code,
-                            message: e.message,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
-                },
-                Response::DeleteNetwork(res) => match res {
-                    Ok(_empty) => {
-                        let evt = Event::DeleteNetwork(Ok(()));
-                        tx.send(evt).unwrap();
-                    }
-                    Err(e) => {
-                        let evt = Event::DeleteNetwork(Err(RemoteError {
-                            code: e.code,
-                            message: e.message,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
-                },
-                Response::FileList(res) => match res {
-                    Ok(list) => {
-                        debug!(
-                            "Received {} dirs and {} files",
-                            list.dirs.map_or(0, |v| v.len()),
-                            list.files.map_or(0, |v| v.len()),
-                        );
-                        data.sync_files = SyncStatus::Done(0);
-                        let evt = Event::FileSyncStatus;
-                        tx.send(evt).unwrap();
-                    }
-                    Err(e) => {
-                        data.sync_files = SyncStatus::Error(RemoteError {
-                            code: e.code,
-                            message: e.message,
-                        });
-                        let evt = Event::FileSyncStatus;
-                        tx.send(evt).unwrap();
-                    }
-                },
-            },
-            /*RpcResult::FileList(lst) => {
-                  database.update_file_list(lst.files, lst.last);
-                  if lst.last {
-                      match database.get_unsynced_file() {
-                          Some(f) => {
-                              let p = database.sync_stats();
-                              tx.send(Event::Reload(Reload::Step(Some(p)))).unwrap();
-                              com.send(rpc.get_file_info(f));
-                          }
-                          None => {
-                              tx.send(Event::Reload(Reload::Stop)).unwrap();
-                          }
-                      }
-                  } else {
-                      tx.send(Event::Reload(Reload::Step(None))).unwrap();
-                      com.send(rpc.get_file_list(false));
+                }*/
+              /*match e.request {
+                  ErrReq::Version => {}
+                  ErrReq::FileList => {
+                      tx.send(Event::Reload(Reload::Stop)).unwrap();
                   }
-              }
-              RpcResult::FileInfo(info) => {
-                  database.set_file_info(info);
-                  match database.get_unsynced_file() {
-                      Some(f) => {
-                          let p = database.sync_stats();
-                          tx.send(Event::Reload(Reload::Step(Some(p)))).unwrap();
-                          com.send(rpc.get_file_info(f));
-                      }
-                      None => {
-                          tx.send(Event::Reload(Reload::Stop)).unwrap();
-                          database.save();
-                      }
+                  ErrReq::FileInfo => {
+                      tx.send(Event::Reload(Reload::Stop)).unwrap();
                   }
+                  _ => {}
               }*/
-            /*match e.request {
-                ErrReq::Version => {}
-                ErrReq::FileList => {
-                    tx.send(Event::Reload(Reload::Stop)).unwrap();
-                }
-                ErrReq::FileInfo => {
-                    tx.send(Event::Reload(Reload::Stop)).unwrap();
-                }
-                _ => {}
-            }*/
-            //Message::Notification => {}
+              //Message::Notification => {}
         }
     }
 }
@@ -592,16 +686,15 @@ impl Drop for Backend {
     }
 }
 
-impl fmt::Display for SyncStatus {
+impl fmt::Display for FileSyncStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Self::Idle => write!(f, "Idle."),
-            Self::Running => write!(f, "Running."),
-            Self::Done(n) => write!(f, "Done ({n} tracks)."),
-            Self::Aborted => write!(f, "Cancelled by user."),
-            Self::Timeout => write!(f, "Timeout."),
+            Self::Idle => write!(f, "Idle"),
+            Self::Running => write!(f, "Running"),
+            Self::Done(n, t) => write!(f, "Done ({n} tracks in {}s)", t.as_secs()),
             Self::Disconnected => write!(f, "Disconnected"),
-            Self::Error(e) => write!(f, "Error: {} [{}].", e.message, e.code),
+            Self::Timeout => write!(f, "Timeout"),
+            Self::Error(e) => write!(f, "Error: {} [{}]", e.message, e.code),
         }
     }
 }
