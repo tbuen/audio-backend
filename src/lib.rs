@@ -4,7 +4,6 @@ mod json;
 
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::{MutexGuard, mpsc};
@@ -42,11 +41,10 @@ pub enum Event {
     NetworkList(Result<Vec<String>, RemoteError>),
     SetNetwork(Result<(), RemoteError>),
     DeleteNetwork(Result<(), RemoteError>),
-    FileSyncStatus(FileSyncStatus),
-    //Reload(Reload),
+    FileSync(SyncStatus),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     NotConnected,
     AlreadyRunning,
@@ -103,15 +101,12 @@ pub struct Network {
     pub rssi: i8,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub enum FileSyncStatus {
+#[derive(Default, Copy, Debug, Clone, PartialEq, Eq)]
+pub enum SyncStatus {
     #[default]
     Idle,
     Running,
-    Done(u16, Duration),
-    Disconnected,
-    Timeout,
-    Error(RemoteError),
+    Completed,
 }
 
 enum Command {
@@ -125,7 +120,7 @@ enum Command {
     GetWifiNetworkList,
     SetWifiNetwork { ssid: String, key: String },
     DeleteWifiNetwork { ssid: String },
-    ResyncFiles,
+    SyncFiles,
     Quit,
 }
 
@@ -139,6 +134,7 @@ struct SharedData {
 #[derive(Default)]
 struct FileSync {
     running: bool,
+    start: Option<Instant>,
     timestamp: Option<Instant>,
     map: HashMap<String, FileSyncEntry>,
 }
@@ -154,12 +150,6 @@ enum FileSyncStep {
     Requested,
     Received,
 }
-
-//pub enum Reload {
-//    Start,
-//    Step(Option<(usize, usize)>),
-//    Stop,
-//}
 
 impl Backend {
     pub fn new() -> Self {
@@ -289,7 +279,7 @@ impl Backend {
         Ok(())
     }
 
-    pub fn sync_files_start(&self) -> Result<(), Error> {
+    pub fn sync_files(&self) -> Result<(), Error> {
         let (mutex, _) = &*self.shared;
         let mut data = mutex.lock().unwrap();
         if !data.connected {
@@ -300,11 +290,12 @@ impl Backend {
         }
         data.filesync.running = true;
         data.filesync.map.clear();
+        data.filesync.start = Some(Instant::now());
         data.filesync.timestamp = Some(Instant::now());
         self.evt_sender
-            .send(Event::FileSyncStatus(FileSyncStatus::Running))
+            .send(Event::FileSync(SyncStatus::Running))
             .unwrap();
-        self.cmd_sender.send(Command::ResyncFiles).unwrap();
+        self.cmd_sender.send(Command::SyncFiles).unwrap();
         Ok(())
     }
 
@@ -361,13 +352,9 @@ impl Backend {
                     Command::DeleteWifiNetwork { ssid } => {
                         com.send(json.delete_wifi_network(&ssid));
                     }
-                    Command::ResyncFiles => {
+                    Command::SyncFiles => {
                         com.send(json.get_file_list(None));
                     }
-                    /*Ok(Command::Resync) => {
-                        tx.send(Event::Reload(Reload::Start)).unwrap();
-                        com.send(rpc.get_file_list(true));
-                    }*/
                     Command::Quit => {
                         debug!("quit received");
                         break;
@@ -390,19 +377,16 @@ impl Backend {
                         tx.send(Event::Disconnected).unwrap();
                         if data.filesync.running {
                             data.filesync.running = false;
-                            tx.send(Event::FileSyncStatus(FileSyncStatus::Disconnected))
-                                .unwrap();
+                            tx.send(Event::FileSync(SyncStatus::Idle)).unwrap();
                         }
                     }
                     com::Event::Message(msg) => {
                         debug!("Message: {msg}");
                         if let Some(m) = json.parse(&msg) {
                             debug!("Backend received valid message :-)");
-                            //Self::handle_message(m, &com, &mut rpc, &tx, &database);
                             let data = mutex.lock().unwrap();
                             Self::handle_message(m, &com, &json, &tx, data);
                         }
-                        //tx.send(Event::Connected).unwrap();
                     }
                 }
             }
@@ -423,20 +407,18 @@ impl Backend {
                     .filter(|e| e.step == FileSyncStep::Requested)
                     .count();
                 if n_total > 0 && n_new == 0 && n_req == 0 {
-                    info!("sync finished");
+                    info!(
+                        "file sync finished in {}ms",
+                        data.filesync.start.unwrap().elapsed().as_millis()
+                    );
                     data.filesync.running = false;
-                    tx.send(Event::FileSyncStatus(FileSyncStatus::Done(
-                        0,
-                        Duration::from_secs(0),
-                    )))
-                    .unwrap();
+                    tx.send(Event::FileSync(SyncStatus::Completed)).unwrap();
                 } else if Instant::now()
                     > data.filesync.timestamp.unwrap() + Duration::from_secs(SYNC_TIMEOUT_S)
                 {
-                    info!("sync timeout");
+                    error!("file sync timeout");
                     data.filesync.running = false;
-                    tx.send(Event::FileSyncStatus(FileSyncStatus::Timeout))
-                        .unwrap();
+                    tx.send(Event::FileSync(SyncStatus::Idle)).unwrap();
                 } else if n_new > 0 && n_req < PARALLEL_REQUESTS {
                     for (k, v) in &mut data.filesync.map {
                         if v.step == FileSyncStep::New {
@@ -616,13 +598,11 @@ impl Backend {
                             data.filesync.timestamp = Some(Instant::now());
                         }
                         Err(e) => {
-                            data.filesync.running = false;
-                            let status = FileSyncStatus::Error(RemoteError {
-                                code: e.code,
-                                message: e.message,
-                            });
-                            let evt = Event::FileSyncStatus(status);
-                            tx.send(evt).unwrap();
+                            if data.filesync.running {
+                                data.filesync.running = false;
+                                error!("error during file sync: {} [{}]", e.message, e.code);
+                                tx.send(Event::FileSync(SyncStatus::Idle)).unwrap();
+                            }
                         }
                     },
                 }
@@ -683,18 +663,5 @@ impl Drop for Backend {
     fn drop(&mut self) {
         self.cmd_sender.send(Command::Quit).unwrap();
         self.handle.take().unwrap().join().unwrap();
-    }
-}
-
-impl fmt::Display for FileSyncStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Idle => write!(f, "Idle"),
-            Self::Running => write!(f, "Running"),
-            Self::Done(n, t) => write!(f, "Done ({n} tracks in {}s)", t.as_secs()),
-            Self::Disconnected => write!(f, "Disconnected"),
-            Self::Timeout => write!(f, "Timeout"),
-            Self::Error(e) => write!(f, "Error: {} [{}]", e.message, e.code),
-        }
     }
 }
