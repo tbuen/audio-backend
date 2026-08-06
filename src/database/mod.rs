@@ -1,4 +1,8 @@
-use super::Command;
+mod filesystem;
+
+pub(crate) use filesystem::FileSystem;
+
+/*use super::Command;
 use crate::json::types::FileInfo;
 use data::Data;
 use std::sync::mpsc::Sender;
@@ -75,3 +79,4 @@ impl Database {
         data.sync_stats()
     }
 }
+*/

@@ -1,4 +1,73 @@
-use super::DirEntry;
+use std::collections::HashMap;
+
+use crate::FileSync;
+
+#[derive(Default)]
+pub struct FileSystem {
+    prefix: String,
+    pwd: String,
+    map: HashMap<String, PathContent>,
+}
+
+pub enum Error {
+    NotSynced,
+    NotFound,
+}
+
+struct PathContent {
+    dirs: Vec<String>,
+    files: Vec<String>,
+}
+
+impl FileSystem {
+    pub(crate) fn new() -> Self {
+        FileSystem::default()
+    }
+
+    pub(crate) fn rebuild(&mut self, sync: &mut FileSync) {
+        self.prefix.clone_from(&sync.prefix);
+        self.pwd.clear();
+        self.map.clear();
+        for (k, v) in sync.map.drain() {
+            self.map.insert(
+                k,
+                PathContent {
+                    dirs: v.dirs,
+                    files: v.files,
+                },
+            );
+        }
+    }
+
+    pub fn pwd(&self) -> Result<String, Error> {
+        if self.prefix.is_empty() {
+            Err(Error::NotSynced)
+        } else if self.pwd.is_empty() {
+            Ok(String::from("/"))
+        } else {
+            Ok(self.pwd.clone())
+        }
+    }
+
+    pub fn cd(&self, _dir: &str) -> Result<(), Error> {
+        //let p = format!("{}{}", self.root, self.pwd);
+        //let cnt = self.map.get(&p).unwrap();
+        //&cnt.dirs
+        Err(Error::NotFound)
+    }
+
+    pub fn ls(&self) -> Result<(Vec<String>, Vec<String>), Error> {
+        if self.prefix.is_empty() {
+            Err(Error::NotSynced)
+        } else {
+            let p = format!("{}{}", self.prefix, self.pwd);
+            let cnt = self.map.get(&p).unwrap();
+            Ok((cnt.dirs.clone(), cnt.files.clone()))
+        }
+    }
+}
+
+/*use super::DirEntry;
 use crate::json::types::FileInfo;
 
 #[derive(PartialEq)]
@@ -137,3 +206,4 @@ impl Data {
         (self.num_synced, self.num_to_sync)
     }
 }
+*/
