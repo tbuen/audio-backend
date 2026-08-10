@@ -1,6 +1,4 @@
-mod filesystem;
-
-pub(crate) use filesystem::FileSystem;
+pub(crate) mod filesystem;
 
 /*use super::Command;
 use crate::json::types::FileInfo;

@@ -13,8 +13,9 @@ use std::time::{Duration, Instant};
 
 use log::{debug, error, info};
 
+pub use crate::database::filesystem::{Dir, FileSystem, FsError};
+
 use crate::common::access_point::Connector;
-use crate::database::FileSystem;
 use crate::json::{Handler, Message, Response};
 
 pub const NAME: &str = env!("CARGO_PKG_NAME");

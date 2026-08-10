@@ -9,9 +9,15 @@ pub struct FileSystem {
     map: HashMap<String, PathContent>,
 }
 
-pub enum Error {
+pub enum FsError {
     NotSynced,
     NotFound,
+}
+
+pub enum Dir<'a> {
+    Root,
+    Up,
+    Down(&'a str),
 }
 
 struct PathContent {
@@ -39,26 +45,48 @@ impl FileSystem {
         }
     }
 
-    pub fn pwd(&self) -> Result<String, Error> {
+    pub fn pwd(&self) -> Result<String, FsError> {
         if self.prefix.is_empty() {
-            Err(Error::NotSynced)
+            Err(FsError::NotSynced)
         } else if self.pwd.is_empty() {
-            Ok(String::from("/"))
+            Ok(String::new())
         } else {
             Ok(self.pwd.clone())
         }
     }
 
-    pub fn cd(&self, _dir: &str) -> Result<(), Error> {
-        //let p = format!("{}{}", self.root, self.pwd);
-        //let cnt = self.map.get(&p).unwrap();
-        //&cnt.dirs
-        Err(Error::NotFound)
+    pub fn cd(&mut self, dir: Dir) -> Result<(), FsError> {
+        if self.prefix.is_empty() {
+            Err(FsError::NotSynced)
+        } else {
+            match dir {
+                Dir::Root => {
+                    self.pwd.clear();
+                    Ok(())
+                }
+                Dir::Up => {
+                    if let Some((s, _)) = self.pwd.rsplit_once('/') {
+                        self.pwd = s.to_owned();
+                    }
+                    Ok(())
+                }
+                Dir::Down(d) => {
+                    let p = format!("{}{}/{d}", self.prefix, self.pwd);
+                    if self.map.contains_key(&p) {
+                        self.pwd.push('/');
+                        self.pwd.push_str(d);
+                        Ok(())
+                    } else {
+                        Err(FsError::NotFound)
+                    }
+                }
+            }
+        }
     }
 
-    pub fn ls(&self) -> Result<(Vec<String>, Vec<String>), Error> {
+    pub fn ls(&self) -> Result<(Vec<String>, Vec<String>), FsError> {
         if self.prefix.is_empty() {
-            Err(Error::NotSynced)
+            Err(FsError::NotSynced)
         } else {
             let p = format!("{}{}", self.prefix, self.pwd);
             let cnt = self.map.get(&p).unwrap();
