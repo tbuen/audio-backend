@@ -1,28 +1,19 @@
 use std::collections::HashMap;
 
-use crate::FileSync;
+use crate::backend::ChangeDirectory;
+use crate::sync;
+use crate::{Error, Result};
 
 #[derive(Default)]
-pub struct FileSystem {
+pub(crate) struct FileSystem {
     prefix: String,
-    pwd: String,
+    current: String,
     map: HashMap<String, PathContent>,
 }
 
-pub enum FsError {
-    NotSynced,
-    NotFound,
-}
-
-pub enum Dir<'a> {
-    Root,
-    Up,
-    Down(&'a str),
-}
-
-struct PathContent {
-    dirs: Vec<String>,
-    files: Vec<String>,
+pub(crate) struct PathContent {
+    pub dirs: Vec<String>,
+    pub files: Vec<String>,
 }
 
 impl FileSystem {
@@ -30,67 +21,67 @@ impl FileSystem {
         FileSystem::default()
     }
 
-    pub(crate) fn rebuild(&mut self, sync: &mut FileSync) {
-        self.prefix.clone_from(&sync.prefix);
-        self.pwd.clear();
-        self.map.clear();
-        for (k, v) in sync.map.drain() {
-            self.map.insert(
-                k,
-                PathContent {
-                    dirs: v.dirs,
-                    files: v.files,
-                },
-            );
+    pub(crate) fn rebuild(&mut self, sync: sync::Files) {
+        self.prefix = sync.prefix.unwrap();
+        self.current.clear();
+        self.map = sync.map.into_iter().map(|(k, v)| (k, v.into())).collect();
+    }
+
+    pub(crate) fn current_directory(&self) -> Result<&str> {
+        if self.prefix.is_empty() {
+            Err(Error::FilesNotSynced)
+        } else {
+            Ok(&self.current)
         }
     }
 
-    pub fn pwd(&self) -> Result<String, FsError> {
+    pub(crate) fn change_directory(&mut self, to: ChangeDirectory) -> Result<()> {
         if self.prefix.is_empty() {
-            Err(FsError::NotSynced)
-        } else if self.pwd.is_empty() {
-            Ok(String::new())
+            Err(Error::FilesNotSynced)
         } else {
-            Ok(self.pwd.clone())
-        }
-    }
-
-    pub fn cd(&mut self, dir: Dir) -> Result<(), FsError> {
-        if self.prefix.is_empty() {
-            Err(FsError::NotSynced)
-        } else {
-            match dir {
-                Dir::Root => {
-                    self.pwd.clear();
+            match to {
+                ChangeDirectory::ToRoot => {
+                    self.current.clear();
                     Ok(())
                 }
-                Dir::Up => {
-                    if let Some((s, _)) = self.pwd.rsplit_once('/') {
-                        self.pwd = s.to_owned();
-                    }
-                    Ok(())
-                }
-                Dir::Down(d) => {
-                    let p = format!("{}{}/{d}", self.prefix, self.pwd);
-                    if self.map.contains_key(&p) {
-                        self.pwd.push('/');
-                        self.pwd.push_str(d);
+                ChangeDirectory::ToParent => {
+                    if let Some((s, _)) = self.current.rsplit_once('/') {
+                        self.current = s.to_owned();
                         Ok(())
                     } else {
-                        Err(FsError::NotFound)
+                        Err(Error::FileNotFound)
+                    }
+                }
+                ChangeDirectory::ToChild(c) => {
+                    let p = format!("{}{}/{c}", self.prefix, self.current);
+                    if self.map.contains_key(&p) {
+                        self.current.push('/');
+                        self.current.push_str(c);
+                        Ok(())
+                    } else {
+                        Err(Error::FileNotFound)
                     }
                 }
             }
         }
     }
 
-    pub fn ls(&self) -> Result<(Vec<String>, Vec<String>), FsError> {
+    pub(crate) fn directory_content(&self) -> Result<&PathContent> {
         if self.prefix.is_empty() {
-            Err(FsError::NotSynced)
+            Err(Error::FilesNotSynced)
         } else {
-            let p = format!("{}{}", self.prefix, self.pwd);
+            let p = format!("{}{}", self.prefix, self.current);
             let cnt = self.map.get(&p).unwrap();
-            Ok((cnt.dirs.clone(), cnt.files.clone()))
+            Ok(cnt)
+        }
+    }
+}
+
+impl From<sync::FileSyncEntry> for PathContent {
+    fn from(value: sync::FileSyncEntry) -> Self {
+        PathContent {
+            dirs: value.dirs,
+            files: value.files,
         }
     }
 }

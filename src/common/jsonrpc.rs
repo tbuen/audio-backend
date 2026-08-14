@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use log::error;
+use log::error; // TODO replace by RPCError and Error
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
