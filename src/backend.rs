@@ -222,7 +222,7 @@ impl Backend {
             .map(|path| path.split('/').map(ToOwned::to_owned).collect())
     }
 
-    pub fn change_directory(&mut self, to: ChangeDirectory) -> Result<()> {
+    pub fn change_directory(&self, to: ChangeDirectory) -> Result<()> {
         let mut fs = self.filesystem.lock().unwrap();
         fs.change_directory(to)
     }
@@ -307,8 +307,9 @@ impl Backend {
                         data.connected = false;
                         tx.send(Event::Disconnected).unwrap();
                         if data.filesync {
-                            data.filesync = false;
+                            filesync.take();
                             tx.send(Event::FileSync(Err(Error::Disconnected))).unwrap();
+                            data.filesync = false;
                         }
                     }
                     ComEvent::Message(msg) => {

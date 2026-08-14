@@ -40,7 +40,7 @@ impl fmt::Display for Error {
             Error::Disconnected => write!(f, "disconnected from device"),
             Error::FilesNotSynced => write!(f, "files are not synchronized"),
             Error::FileNotFound => write!(f, "file/directory not found"),
-            Error::Remote { code, message } => write!(f, "device returned {code}: {message}"),
+            Error::Remote { code, message } => write!(f, "device returned: ({code}) {message}"),
         }
     }
 }
