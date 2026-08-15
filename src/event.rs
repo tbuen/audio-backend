@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -13,6 +13,7 @@ pub enum Event {
     WiFiSetNetwork(Result<()>),
     WiFiDeleteNetwork(Result<()>),
     FileSync(Result<Sync>),
+    GeneralError(Error),
 }
 
 #[derive(Debug, Clone)]

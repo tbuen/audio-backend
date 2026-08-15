@@ -26,6 +26,7 @@ pub enum Error {
     Disconnected,
     FilesNotSynced,
     FileNotFound,
+    RPC(String),
     Remote { code: i16, message: String },
 }
 
@@ -40,6 +41,7 @@ impl fmt::Display for Error {
             Error::Disconnected => write!(f, "disconnected from device"),
             Error::FilesNotSynced => write!(f, "files are not synchronized"),
             Error::FileNotFound => write!(f, "file/directory not found"),
+            Error::RPC(s) => write!(f, "{s}"),
             Error::Remote { code, message } => write!(f, "device returned: ({code}) {message}"),
         }
     }

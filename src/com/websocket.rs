@@ -52,6 +52,7 @@ impl WebSocket {
     }
 
     fn thread(sock: SocketAddrV4, tx: Sender<Event>, rx: Receiver<Command>) {
+        #![allow(clippy::similar_names)]
         let url = format!("ws://{}:{}/websocket", sock.ip(), sock.port());
         let mut websocket = None;
 

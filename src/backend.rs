@@ -5,13 +5,14 @@ use std::sync::{MutexGuard, mpsc};
 use std::thread::{Builder, JoinHandle};
 use std::time::Duration;
 
-use log::{debug, error, info};
+use log::{debug, info};
 
 use crate::com::{Com, Event as ComEvent}; // TODO move to common
 use crate::common::access_point::Connector;
+use crate::common::jsonrpc;
 use crate::event::{About, Connection, Event, File, Heap, Memory, Network, SPIFlash, Sync};
 use crate::filesystem::{FileSystem, PathContent};
-use crate::json::{Handler, Message, Response};
+use crate::json::{self, Handler, Message, Response};
 use crate::sync;
 use crate::{Error, Result};
 
@@ -314,11 +315,14 @@ impl Backend {
                     }
                     ComEvent::Message(msg) => {
                         debug!("Message: {msg}");
-                        if let Some(m) = json.parse(&msg) {
-                            debug!("Backend received valid message :-)");
-                            // TODO hier schon locken, wirklich nötig? Lockt zu lange...
-                            let data = mutex.lock().unwrap();
-                            Self::handle_message(m, &com, &json, &tx, data, filesync.as_mut());
+                        match json.parse(&msg) {
+                            Ok(m) => {
+                                debug!("Backend received valid message :-)");
+                                // TODO hier schon locken, wirklich nötig? Lockt zu lange...
+                                let data = mutex.lock().unwrap();
+                                Self::handle_message(m, &com, &json, &tx, data, filesync.as_mut());
+                            }
+                            Err(e) => tx.send(Event::GeneralError(e.into())).unwrap(),
                         }
                     }
                 }
@@ -374,8 +378,7 @@ impl Backend {
                         }));
                         tx.send(evt).unwrap();
                     }
-                    // TODO send Event::InfoConnection(Err(xxx)) instead
-                    Err(e) => error!("Could not get InfoConnection: {e}"),
+                    Err(e) => tx.send(Event::InfoConnection(Err(e.into()))).unwrap(),
                 },
                 Response::InfoAbout(res) => match res {
                     Ok(about) => {
@@ -386,7 +389,7 @@ impl Backend {
                         }));
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => error!("Could not get InfoAbout: {e}"),
+                    Err(e) => tx.send(Event::InfoAbout(Err(e.into()))).unwrap(),
                 },
                 Response::InfoMemory(res) => match res {
                     Ok(info) => {
@@ -399,7 +402,7 @@ impl Backend {
                         }));
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => error!("Could not get InfoMemory: {e}"),
+                    Err(e) => tx.send(Event::InfoMemory(Err(e.into()))).unwrap(),
                 },
                 Response::InfoSPIFlash(res) => match res {
                     Ok(info) => {
@@ -419,7 +422,7 @@ impl Backend {
                         }));
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => error!("Could not get InfoMemory: {e}"),
+                    Err(e) => tx.send(Event::InfoSPIFlash(Err(e.into()))).unwrap(),
                 },
                 Response::ScanResult(res) => match res {
                     Ok(list) => {
@@ -433,13 +436,7 @@ impl Backend {
                         let evt = Event::WiFiScanResult(Ok(networks));
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => {
-                        let evt = Event::WiFiScanResult(Err(Error::Remote {
-                            code: e.code,
-                            message: e.message,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
+                    Err(e) => tx.send(Event::WiFiScanResult(Err(e.into()))).unwrap(),
                 },
                 Response::NetworkList(res) => match res {
                     Ok(list) => {
@@ -450,40 +447,21 @@ impl Backend {
                         let evt = Event::WiFiNetworkList(Ok(networks));
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => {
-                        let evt = Event::WiFiNetworkList(Err(Error::Remote {
-                            code: e.code,
-                            message: e.message,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
+                    Err(e) => tx.send(Event::WiFiNetworkList(Err(e.into()))).unwrap(),
                 },
                 Response::SetNetwork(res) => match res {
                     Ok(_empty) => {
                         let evt = Event::WiFiSetNetwork(Ok(()));
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => {
-                        let evt = Event::WiFiSetNetwork(Err(Error::Remote {
-                            code: e.code,
-                            message: e.message,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
+                    Err(e) => tx.send(Event::WiFiSetNetwork(Err(e.into()))).unwrap(),
                 },
                 Response::DeleteNetwork(res) => match res {
                     Ok(_empty) => {
                         let evt = Event::WiFiDeleteNetwork(Ok(()));
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => {
-                        let evt = Event::WiFiDeleteNetwork(Err(Error::Remote {
-                            // TODO die hier automatisch konvertieren...
-                            code: e.code,
-                            message: e.message,
-                        }));
-                        tx.send(evt).unwrap();
-                    }
+                    Err(e) => tx.send(Event::WiFiDeleteNetwork(Err(e.into()))).unwrap(),
                 },
                 Response::FileList(resp) => {
                     if let Some(fs) = fs {
@@ -513,6 +491,21 @@ impl From<&PathContent> for DirectoryContent {
         Self {
             dirs: value.dirs.clone(),
             files: value.files.clone(),
+        }
+    }
+}
+
+impl From<json::Error> for Error {
+    fn from(value: json::Error) -> Self {
+        Error::RPC(value.to_string())
+    }
+}
+
+impl From<jsonrpc::ExecError> for Error {
+    fn from(value: jsonrpc::ExecError) -> Self {
+        Error::Remote {
+            code: value.code,
+            message: value.message,
         }
     }
 }

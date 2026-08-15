@@ -1,4 +1,6 @@
-use log::error;
+use std::error;
+use std::fmt;
+
 use serde::Deserialize;
 use serde_json::json;
 
@@ -13,6 +15,13 @@ const GET_WIFI_NETWORK_LIST: &str = "get-wifi-network-list";
 const SET_WIFI_NETWORK: &str = "set-wifi-network";
 const DELETE_WIFI_NETWORK: &str = "delete-wifi-network";
 const GET_FILE_LIST: &str = "get-file-list";
+
+#[derive(Debug, Clone)]
+pub(crate) enum Error {
+    JsonRpc(String),
+    Parsing(String),
+    UnknownMethod(String),
+}
 
 #[derive(Default)]
 pub(crate) struct Handler {
@@ -151,7 +160,7 @@ impl Handler {
         self.jsonrpc.build_request(GET_FILE_LIST, params)
     }
 
-    pub(crate) fn parse(&self, msg: &str) -> Option<Message> {
+    pub(crate) fn parse(&self, msg: &str) -> Result<Message, Error> {
         /*Response {
             method: &'a str,
             data: Result<Value, Error>,
@@ -165,107 +174,34 @@ impl Handler {
         ScanResult(Result<Vec<Network>, Error>),
         NetworkList(Result<Vec<String>, Error>),*/
 
-        if let Some(msg) = self.jsonrpc.parse(msg) {
-            match msg {
+        macro_rules! parse {
+            ($data:expr, $type:path) => {
+                match $data {
+                    Ok(v) => match serde_json::from_value(v) {
+                        Ok(o) => Ok(Message::Response($type(Ok(o)))),
+                        Err(e) => Err(e.into()),
+                    },
+                    Err(e) => Ok(Message::Response($type(Err(e)))),
+                }
+            };
+        }
+
+        match self.jsonrpc.parse(msg) {
+            Ok(msg) => match msg {
                 jsonrpc::Message::Response { method, data } => match method {
-                    GET_INFO_CONNECTION => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::InfoConnection(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::InfoConnection(Err(e)))),
-                    },
-                    GET_INFO_ABOUT => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::InfoAbout(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::InfoAbout(Err(e)))),
-                    },
-                    GET_INFO_MEMORY => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::InfoMemory(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::InfoMemory(Err(e)))),
-                    },
-                    GET_INFO_SPIFLASH => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::InfoSPIFlash(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::InfoSPIFlash(Err(e)))),
-                    },
-                    GET_WIFI_SCAN_RESULT => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::ScanResult(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::ScanResult(Err(e)))),
-                    },
-                    GET_WIFI_NETWORK_LIST => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::NetworkList(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::NetworkList(Err(e)))),
-                    },
-                    SET_WIFI_NETWORK => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::SetNetwork(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::SetNetwork(Err(e)))),
-                    },
-                    DELETE_WIFI_NETWORK => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::DeleteNetwork(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::DeleteNetwork(Err(e)))),
-                    },
-                    GET_FILE_LIST => match data {
-                        Ok(v) => match serde_json::from_value(v) {
-                            Ok(o) => Some(Message::Response(Response::FileList(Ok(o)))),
-                            Err(e) => {
-                                error!("Could not parse response: {e}");
-                                None
-                            }
-                        },
-                        Err(e) => Some(Message::Response(Response::FileList(Err(e)))),
-                    },
-                    _ => {
-                        error!("Received response with unknown method: {method}");
-                        None
-                    }
+                    GET_INFO_CONNECTION => parse!(data, Response::InfoConnection),
+                    GET_INFO_ABOUT => parse!(data, Response::InfoAbout),
+                    GET_INFO_MEMORY => parse!(data, Response::InfoMemory),
+                    GET_INFO_SPIFLASH => parse!(data, Response::InfoSPIFlash),
+                    GET_WIFI_SCAN_RESULT => parse!(data, Response::ScanResult),
+                    GET_WIFI_NETWORK_LIST => parse!(data, Response::NetworkList),
+                    SET_WIFI_NETWORK => parse!(data, Response::SetNetwork),
+                    DELETE_WIFI_NETWORK => parse!(data, Response::DeleteNetwork),
+                    GET_FILE_LIST => parse!(data, Response::FileList),
+                    _ => Err(Error::UnknownMethod(method.to_owned())),
                 },
-            }
-        } else {
-            None
+            },
+            Err(e) => Err(e.into()),
         }
     }
 }
@@ -329,3 +265,27 @@ pub(crate) fn get_file_info(&self, filename: String) -> String {
     );
     serde_json::to_string(&rpc).unwrap()
 }*/
+
+impl error::Error for Error {}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::JsonRpc(s) => write!(f, "jsonrpc: {s}"),
+            Error::Parsing(s) => write!(f, "could not parse response: {s}"),
+            Error::UnknownMethod(s) => write!(f, "received unknown method: {s}"),
+        }
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(value: serde_json::Error) -> Self {
+        Error::Parsing(value.to_string())
+    }
+}
+
+impl From<jsonrpc::Error> for Error {
+    fn from(value: jsonrpc::Error) -> Self {
+        Error::JsonRpc(value.to_string())
+    }
+}
