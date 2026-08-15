@@ -324,6 +324,11 @@ impl Backend {
                         tx.send(Event::Error(Error::Timeout)).unwrap();
                         data.filesync = false;
                     }
+                    sync::State::Error(e) => {
+                        filesync.take();
+                        tx.send(Event::Error(e.into())).unwrap();
+                        data.filesync = false;
+                    }
                     sync::State::NextToSync(list) => {
                         if list.is_empty() {
                             com.send(json.get_file_list(None));

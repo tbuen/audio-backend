@@ -14,6 +14,7 @@ pub(crate) struct Files {
     started: bool,
     starttime: Instant,
     timestamp: Instant,
+    error: Option<jsonrpc::ExecError>,
     pub prefix: Option<String>,
     pub map: HashMap<String, FileSyncEntry>,
 }
@@ -24,6 +25,7 @@ pub(crate) enum State<'a> {
     Waiting,
     Timeout,
     Finished,
+    Error(jsonrpc::ExecError),
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +49,7 @@ impl<'a> Files {
             started: false,
             starttime: Instant::now(),
             timestamp: Instant::now(),
+            error: None,
             prefix: None,
             map: HashMap::new(),
         }
@@ -68,6 +71,9 @@ impl<'a> Files {
         if !self.started {
             self.started = true;
             State::NextToSync(Vec::new())
+        } else if let Some(e) = self.error.take() {
+            error!("file sync error");
+            State::Error(e)
         } else if n_total > 0 && n_new == 0 && n_req == 0 {
             info!(
                 "file sync finished in {}ms",
@@ -122,13 +128,9 @@ impl<'a> Files {
                 }
                 self.timestamp = Instant::now();
             }
-            Err(_e) => {
-                // TODO
-                //if data.filesync.running {
-                //    data.filesync.running = false;
-                //    error!("error during file sync: {} [{}]", e.message, e.code);
-                //    tx.send(Event::FileSync(SyncStatus::Idle)).unwrap();
-                // }
+            Err(e) => {
+                self.error = Some(e);
+                self.timestamp = Instant::now();
             }
         }
     }
