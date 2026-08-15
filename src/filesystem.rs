@@ -49,7 +49,7 @@ impl FileSystem {
                         self.current = s.to_owned();
                         Ok(())
                     } else {
-                        Err(Error::FileNotFound)
+                        Err(Error::DirectoryNotFound)
                     }
                 }
                 ChangeDirectory::ToChild(c) => {
@@ -59,7 +59,7 @@ impl FileSystem {
                         self.current.push_str(c);
                         Ok(())
                     } else {
-                        Err(Error::FileNotFound)
+                        Err(Error::DirectoryNotFound)
                     }
                 }
             }

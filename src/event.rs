@@ -1,19 +1,19 @@
-use crate::{Error, Result};
+use crate::Error;
 
 #[derive(Debug, Clone)]
 pub enum Event {
     Connected,
     Disconnected,
-    InfoConnection(Result<Connection>),
-    InfoAbout(Result<About>),
-    InfoMemory(Result<Memory>),
-    InfoSPIFlash(Result<SPIFlash>),
-    WiFiScanResult(Result<Vec<Network>>),
-    WiFiNetworkList(Result<Vec<String>>),
-    WiFiSetNetwork(Result<()>),
-    WiFiDeleteNetwork(Result<()>),
-    FileSync(Result<Sync>),
-    GeneralError(Error),
+    InfoConnection(Connection),
+    InfoAbout(About),
+    InfoMemory(Memory),
+    InfoSPIFlash(SPIFlash),
+    WiFiScanResult(Vec<Network>),
+    WiFiNetworkList(Vec<String>),
+    WiFiSetNetwork,
+    WiFiDeleteNetwork,
+    FileSync(Sync),
+    Error(Error),
 }
 
 #[derive(Debug, Clone)]

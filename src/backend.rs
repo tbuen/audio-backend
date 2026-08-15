@@ -108,9 +108,7 @@ impl Backend {
         if data.connected {
             self.cmd.send(Command::GetInfoConnection).unwrap();
         } else {
-            self.evt
-                .send(Event::InfoConnection(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
     }
 
@@ -120,9 +118,7 @@ impl Backend {
         if data.connected {
             self.cmd.send(Command::GetInfoAbout).unwrap();
         } else {
-            self.evt
-                .send(Event::InfoAbout(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
     }
 
@@ -132,9 +128,7 @@ impl Backend {
         if data.connected {
             self.cmd.send(Command::GetInfoMemory).unwrap();
         } else {
-            self.evt
-                .send(Event::InfoMemory(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
     }
 
@@ -144,9 +138,7 @@ impl Backend {
         if data.connected {
             self.cmd.send(Command::GetInfoSPIFlash).unwrap();
         } else {
-            self.evt
-                .send(Event::InfoSPIFlash(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
     }
 
@@ -156,9 +148,7 @@ impl Backend {
         if data.connected {
             self.cmd.send(Command::GetWiFiScanResult).unwrap();
         } else {
-            self.evt
-                .send(Event::WiFiScanResult(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
     }
 
@@ -168,9 +158,7 @@ impl Backend {
         if data.connected {
             self.cmd.send(Command::GetWiFiNetworkList).unwrap();
         } else {
-            self.evt
-                .send(Event::WiFiNetworkList(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
     }
 
@@ -182,9 +170,7 @@ impl Backend {
                 .send(Command::SetWiFiNetwork { ssid, key })
                 .unwrap();
         } else {
-            self.evt
-                .send(Event::WiFiSetNetwork(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
     }
 
@@ -194,9 +180,7 @@ impl Backend {
         if data.connected {
             self.cmd.send(Command::DeleteWiFiNetwork { ssid }).unwrap();
         } else {
-            self.evt
-                .send(Event::WiFiDeleteNetwork(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
     }
 
@@ -204,16 +188,12 @@ impl Backend {
         let (mutex, _) = &*self.shared;
         let mut data = mutex.lock().unwrap();
         if !data.connected {
-            self.evt
-                .send(Event::FileSync(Err(Error::NotConnected)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         } else if data.filesync {
-            self.evt
-                .send(Event::FileSync(Err(Error::AlreadyRunning)))
-                .unwrap();
+            self.evt.send(Event::Error(Error::AlreadyRunning)).unwrap();
         } else {
             data.filesync = true;
-            self.evt.send(Event::FileSync(Ok(Sync::Running))).unwrap();
+            self.evt.send(Event::FileSync(Sync::Running)).unwrap();
         }
     }
 
@@ -309,7 +289,7 @@ impl Backend {
                         tx.send(Event::Disconnected).unwrap();
                         if data.filesync {
                             filesync.take();
-                            tx.send(Event::FileSync(Err(Error::Disconnected))).unwrap();
+                            tx.send(Event::Error(Error::Disconnected)).unwrap();
                             data.filesync = false;
                         }
                     }
@@ -322,7 +302,7 @@ impl Backend {
                                 let data = mutex.lock().unwrap();
                                 Self::handle_message(m, &com, &json, &tx, data, filesync.as_mut());
                             }
-                            Err(e) => tx.send(Event::GeneralError(e.into())).unwrap(),
+                            Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                         }
                     }
                 }
@@ -336,12 +316,12 @@ impl Backend {
                     sync::State::Finished => {
                         let mut fs = filesystem.lock().unwrap();
                         fs.rebuild(filesync.take().unwrap());
-                        tx.send(Event::FileSync(Ok(Sync::Completed))).unwrap();
+                        tx.send(Event::FileSync(Sync::Completed)).unwrap();
                         data.filesync = false;
                     }
                     sync::State::Timeout => {
                         filesync.take();
-                        tx.send(Event::FileSync(Err(Error::Timeout))).unwrap();
+                        tx.send(Event::Error(Error::Timeout)).unwrap();
                         data.filesync = false;
                     }
                     sync::State::NextToSync(list) => {
@@ -373,36 +353,36 @@ impl Backend {
             Message::Response(resp) => match resp {
                 Response::InfoConnection(res) => match res {
                     Ok(connection) => {
-                        let evt = Event::InfoConnection(Ok(Connection {
+                        let evt = Event::InfoConnection(Connection {
                             mode: connection.mode,
-                        }));
+                        });
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => tx.send(Event::InfoConnection(Err(e.into()))).unwrap(),
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
                 Response::InfoAbout(res) => match res {
                     Ok(about) => {
-                        let evt = Event::InfoAbout(Ok(About {
+                        let evt = Event::InfoAbout(About {
                             project: about.project,
                             version: about.version,
                             esp_idf: about.esp_idf,
-                        }));
+                        });
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => tx.send(Event::InfoAbout(Err(e.into()))).unwrap(),
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
                 Response::InfoMemory(res) => match res {
                     Ok(info) => {
-                        let evt = Event::InfoMemory(Ok(Memory {
+                        let evt = Event::InfoMemory(Memory {
                             heap: Heap {
                                 allocated: info.heap.allocated,
                                 free: info.heap.free,
                                 minimum_free: info.heap.minimum_free,
                             },
-                        }));
+                        });
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => tx.send(Event::InfoMemory(Err(e.into()))).unwrap(),
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
                 Response::InfoSPIFlash(res) => match res {
                     Ok(info) => {
@@ -415,14 +395,14 @@ impl Backend {
                                 md5: f.md5,
                             });
                         }
-                        let evt = Event::InfoSPIFlash(Ok(SPIFlash {
+                        let evt = Event::InfoSPIFlash(SPIFlash {
                             total: info.total,
                             free: info.free,
                             files,
-                        }));
+                        });
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => tx.send(Event::InfoSPIFlash(Err(e.into()))).unwrap(),
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
                 Response::ScanResult(res) => match res {
                     Ok(list) => {
@@ -433,10 +413,10 @@ impl Backend {
                                 rssi: e.rssi,
                             });
                         }
-                        let evt = Event::WiFiScanResult(Ok(networks));
+                        let evt = Event::WiFiScanResult(networks);
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => tx.send(Event::WiFiScanResult(Err(e.into()))).unwrap(),
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
                 Response::NetworkList(res) => match res {
                     Ok(list) => {
@@ -444,24 +424,24 @@ impl Backend {
                         for e in list {
                             networks.push(e.ssid);
                         }
-                        let evt = Event::WiFiNetworkList(Ok(networks));
+                        let evt = Event::WiFiNetworkList(networks);
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => tx.send(Event::WiFiNetworkList(Err(e.into()))).unwrap(),
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
                 Response::SetNetwork(res) => match res {
                     Ok(_empty) => {
-                        let evt = Event::WiFiSetNetwork(Ok(()));
+                        let evt = Event::WiFiSetNetwork;
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => tx.send(Event::WiFiSetNetwork(Err(e.into()))).unwrap(),
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
                 Response::DeleteNetwork(res) => match res {
                     Ok(_empty) => {
-                        let evt = Event::WiFiDeleteNetwork(Ok(()));
+                        let evt = Event::WiFiDeleteNetwork;
                         tx.send(evt).unwrap();
                     }
-                    Err(e) => tx.send(Event::WiFiDeleteNetwork(Err(e.into()))).unwrap(),
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
                 Response::FileList(resp) => {
                     if let Some(fs) = fs {
