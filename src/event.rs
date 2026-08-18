@@ -12,7 +12,8 @@ pub enum Event {
     WiFiNetworkList(Vec<String>),
     WiFiSetNetwork,
     WiFiDeleteNetwork,
-    FileSync(Sync),
+    FileSync(FileSync),
+    TagSync(TagSync),
     Error(Error),
 }
 
@@ -62,7 +63,16 @@ pub struct Network {
 }
 
 #[derive(Debug, Clone)]
-pub enum Sync {
-    Running,
+pub enum FileSync {
+    Started,
     Completed,
+    Aborted,
+}
+
+#[derive(Debug, Clone)]
+pub enum TagSync {
+    Started,
+    Step(usize, usize),
+    Completed,
+    Aborted,
 }

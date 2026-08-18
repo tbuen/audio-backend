@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use crate::backend::ChangeDirectory;
-use crate::sync;
+use crate::sync::{FileSyncEntry, SyncFiles};
 use crate::{Error, Result};
+
+use log::debug;
 
 #[derive(Default)]
 pub(crate) struct FileSystem {
@@ -12,8 +14,9 @@ pub(crate) struct FileSystem {
 }
 
 pub(crate) struct PathContent {
+    pub cover: Option<String>,
     pub dirs: Vec<String>,
-    pub files: Vec<String>,
+    pub tracks: Vec<String>,
 }
 
 impl FileSystem {
@@ -21,7 +24,7 @@ impl FileSystem {
         FileSystem::default()
     }
 
-    pub(crate) fn rebuild(&mut self, sync: sync::Files) {
+    pub(crate) fn rebuild(&mut self, sync: SyncFiles) {
         self.prefix = sync.prefix.unwrap();
         self.current.clear();
         self.map = sync.map.into_iter().map(|(k, v)| (k, v.into())).collect();
@@ -32,6 +35,14 @@ impl FileSystem {
             Err(Error::FilesNotSynced)
         } else {
             Ok(&self.current)
+        }
+    }
+
+    pub(crate) fn current_directory_with_prefix(&self) -> Result<String> {
+        if self.prefix.is_empty() {
+            Err(Error::FilesNotSynced)
+        } else {
+            Ok(format!("{}{}", self.prefix, self.current))
         }
     }
 
@@ -75,13 +86,37 @@ impl FileSystem {
             Ok(cnt)
         }
     }
+
+    pub(crate) fn get_all_tracks_in_tree(&self, dir: &str) -> Vec<String> {
+        fn add_all_tracks_in_tree(
+            dir: &str,
+            vec: &mut Vec<String>,
+            map: &HashMap<String, PathContent>,
+        ) {
+            if let Some(v) = map.get(dir) {
+                for d in &v.dirs {
+                    add_all_tracks_in_tree(&format!("{dir}/{d}"), vec, map);
+                }
+                for t in &v.tracks {
+                    vec.push(format!("{dir}/{t}"));
+                }
+            }
+        }
+
+        debug!("get tags for tree {dir}");
+        let mut vec = Vec::new();
+        add_all_tracks_in_tree(dir, &mut vec, &self.map);
+        debug!("get tags for these tracks: {vec:?}");
+        vec
+    }
 }
 
-impl From<sync::FileSyncEntry> for PathContent {
-    fn from(value: sync::FileSyncEntry) -> Self {
+impl From<FileSyncEntry> for PathContent {
+    fn from(value: FileSyncEntry) -> Self {
         PathContent {
+            cover: value.cover,
             dirs: value.dirs,
-            files: value.files,
+            tracks: value.tracks,
         }
     }
 }

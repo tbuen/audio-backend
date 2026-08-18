@@ -21,7 +21,7 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug, Clone)]
 pub enum Error {
     NotConnected,
-    AlreadyRunning,
+    Busy,
     Timeout,
     Disconnected,
     FilesNotSynced,
@@ -37,7 +37,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::NotConnected => write!(f, "not connected to device"),
-            Error::AlreadyRunning => write!(f, "process is already running"),
+            Error::Busy => write!(f, "another process is already running"),
             Error::Timeout => write!(f, "timeout"),
             Error::Disconnected => write!(f, "disconnected from device"),
             Error::FilesNotSynced => write!(f, "files are not synchronized"),

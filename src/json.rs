@@ -15,6 +15,7 @@ const GET_WIFI_NETWORK_LIST: &str = "get-wifi-network-list";
 const SET_WIFI_NETWORK: &str = "set-wifi-network";
 const DELETE_WIFI_NETWORK: &str = "delete-wifi-network";
 const GET_FILE_LIST: &str = "get-file-list";
+const GET_TRACK_INFO: &str = "get-track-info";
 
 #[derive(Debug, Clone)]
 pub(crate) enum Error {
@@ -43,17 +44,8 @@ pub(crate) enum Response {
     SetNetwork(Result<Empty, jsonrpc::ExecError>),
     DeleteNetwork(Result<Empty, jsonrpc::ExecError>),
     FileList(Result<FileList, jsonrpc::ExecError>),
+    TrackInfo(Result<TrackInfo, jsonrpc::ExecError>),
 }
-
-//#[derive(Deserialize)]
-//#[serde(untagged)]
-//pub(crate) enum RpcResult {
-//   InfoCon(InfoCon),
-//  ScanResult(Vec<Network>),
-// NetworkList(Vec<String>),
-//FileList(FileList),
-//FileInfo(FileInfo),
-//}
 
 #[derive(Deserialize)]
 pub(crate) struct Connection {
@@ -111,8 +103,21 @@ pub(crate) struct StoredNetwork {
 #[derive(Deserialize)]
 pub(crate) struct FileList {
     pub path: String,
+    pub cover: Option<String>,
     pub dirs: Option<Vec<String>>,
-    pub files: Option<Vec<String>>,
+    pub tracks: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TrackInfo {
+    pub file: String,
+    pub genre: String,
+    pub artist: String,
+    pub album: String,
+    pub title: String,
+    pub date: Option<u16>,
+    pub track: u16,
+    pub duration: u16,
 }
 
 #[allow(clippy::empty_structs_with_brackets)]
@@ -160,20 +165,12 @@ impl Handler {
         self.jsonrpc.build_request(GET_FILE_LIST, params)
     }
 
+    pub(crate) fn get_track_info(&self, file: &str) -> String {
+        let params = json!({"file":file});
+        self.jsonrpc.build_request(GET_TRACK_INFO, Some(params))
+    }
+
     pub(crate) fn parse(&self, msg: &str) -> Result<Message, Error> {
-        /*Response {
-            method: &'a str,
-            data: Result<Value, Error>,
-        },
-        Notification {
-            method: &'a str,
-            data: Value,
-        },*/
-
-        /*InfoCon(Result<InfoCon, Error>),
-        ScanResult(Result<Vec<Network>, Error>),
-        NetworkList(Result<Vec<String>, Error>),*/
-
         macro_rules! parse {
             ($data:expr, $type:path) => {
                 match $data {
@@ -198,6 +195,7 @@ impl Handler {
                     SET_WIFI_NETWORK => parse!(data, Response::SetNetwork),
                     DELETE_WIFI_NETWORK => parse!(data, Response::DeleteNetwork),
                     GET_FILE_LIST => parse!(data, Response::FileList),
+                    GET_TRACK_INFO => parse!(data, Response::TrackInfo),
                     _ => Err(Error::UnknownMethod(method.to_owned())),
                 },
             },
@@ -205,66 +203,6 @@ impl Handler {
         }
     }
 }
-
-/*use serde::{Deserialize, Serialize};
-
-//pub(crate) const GET_FILE_LIST: &str = "get-file-list";
-//pub(crate) const GET_FILE_INFO: &str = "get-file-info";
-
-
-//#[derive(Serialize)]
-//pub(crate) struct ParamGetFileList {
-//    pub start: bool,
-//}
-
-//#[derive(Serialize)]
-//pub(crate) struct ParamGetFileInfo {
-//    pub filename: String,
-//}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-pub(crate) enum Params {
-    //FileList(ParamGetFileList),
-    //FileInfo(ParamGetFileInfo),
-}
-
-//#[derive(Deserialize)]
-//pub(crate) struct FileList {
-//    pub first: bool,
-//    pub last: bool,
-//    pub files: Vec<String>,
-//}
-
-//#[derive(Deserialize)]
-//pub(crate) struct FileInfo {
-//    pub filename: String,
-//    pub genre: String,
-//    pub artist: String,
-//    pub album: String,
-//    pub title: String,
-//    pub date: Option<u16>,
-//    pub track: u16,
-//    pub duration: u16,
-//}
-
-*/
-
-/*pub(crate) fn get_file_list(&self, start: bool) -> String {
-    let rpc = self.request(
-        types::GET_FILE_LIST,
-        Some(Params::FileList(ParamGetFileList { start })),
-    );
-    serde_json::to_string(&rpc).unwrap()
-}
-
-pub(crate) fn get_file_info(&self, filename: String) -> String {
-    let rpc = self.request(
-        types::GET_FILE_INFO,
-        Some(Params::FileInfo(ParamGetFileInfo { filename })),
-    );
-    serde_json::to_string(&rpc).unwrap()
-}*/
 
 impl error::Error for Error {}
 

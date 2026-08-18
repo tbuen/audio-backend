@@ -1,19 +1,21 @@
 use std::cell::Cell;
+use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
-use std::sync::{MutexGuard, mpsc};
 use std::thread::{Builder, JoinHandle};
 use std::time::Duration;
 
 use log::{debug, info};
 
-use crate::com::{Com, Event as ComEvent}; // TODO move to common
+use crate::com::{Com, Event as ComEvent};
 use crate::common::access_point::Connector;
 use crate::common::jsonrpc;
-use crate::event::{About, Connection, Event, File, Heap, Memory, Network, SPIFlash, Sync};
+use crate::event::{
+    About, Connection, Event, File, FileSync, Heap, Memory, Network, SPIFlash, TagSync,
+};
 use crate::filesystem::{FileSystem, PathContent};
 use crate::json::{self, Handler, Message, Response};
-use crate::sync;
+use crate::sync::{FileSyncState, SyncFiles, SyncTags, TagSyncState};
 use crate::{Error, Result};
 
 pub struct Backend {
@@ -34,8 +36,9 @@ pub enum ChangeDirectory<'a> {
 
 #[derive(Debug)]
 pub struct DirectoryContent {
+    pub cover: Option<String>,
     pub dirs: Vec<String>,
-    pub files: Vec<String>,
+    pub tracks: Vec<String>,
 }
 
 enum Command {
@@ -57,6 +60,7 @@ struct SharedData {
     connected: bool,
     ap_mode: bool,
     filesync: bool,
+    tagsync: Option<String>,
 }
 
 impl Backend {
@@ -189,11 +193,30 @@ impl Backend {
         let mut data = mutex.lock().unwrap();
         if !data.connected {
             self.evt.send(Event::Error(Error::NotConnected)).unwrap();
-        } else if data.filesync {
-            self.evt.send(Event::Error(Error::AlreadyRunning)).unwrap();
+        } else if data.filesync || data.tagsync.is_some() {
+            self.evt.send(Event::Error(Error::Busy)).unwrap();
         } else {
             data.filesync = true;
-            self.evt.send(Event::FileSync(Sync::Running)).unwrap();
+            self.evt.send(Event::FileSync(FileSync::Started)).unwrap();
+        }
+    }
+
+    pub fn sync_tags(&self) {
+        let (mutex, _) = &*self.shared;
+        let mut data = mutex.lock().unwrap();
+        if !data.connected {
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
+        } else if data.filesync || data.tagsync.is_some() {
+            self.evt.send(Event::Error(Error::Busy)).unwrap();
+        } else {
+            let fs = self.filesystem.lock().unwrap();
+            match fs.current_directory_with_prefix() {
+                Ok(dir) => {
+                    data.tagsync = Some(dir);
+                    self.evt.send(Event::TagSync(TagSync::Started)).unwrap();
+                }
+                Err(e) => self.evt.send(Event::Error(e)).unwrap(),
+            }
         }
     }
 
@@ -224,6 +247,7 @@ impl Backend {
         let (mutex, cvar) = &*shared;
         let mut ap = None;
         let mut filesync = None;
+        let mut tagsync = None;
 
         loop {
             if let Ok(cmd) = rx.try_recv() {
@@ -290,17 +314,29 @@ impl Backend {
                         if data.filesync {
                             filesync.take();
                             tx.send(Event::Error(Error::Disconnected)).unwrap();
+                            tx.send(Event::FileSync(FileSync::Aborted)).unwrap();
                             data.filesync = false;
+                        }
+                        if data.tagsync.is_some() {
+                            tagsync.take();
+                            tx.send(Event::Error(Error::Disconnected)).unwrap();
+                            tx.send(Event::TagSync(TagSync::Aborted)).unwrap();
+                            data.tagsync.take();
                         }
                     }
                     ComEvent::Message(msg) => {
                         debug!("Message: {msg}");
                         match json.parse(&msg) {
                             Ok(m) => {
-                                debug!("Backend received valid message :-)");
-                                // TODO hier schon locken, wirklich nötig? Lockt zu lange...
-                                let data = mutex.lock().unwrap();
-                                Self::handle_message(m, &com, &json, &tx, data, filesync.as_mut());
+                                Self::handle_message(
+                                    m,
+                                    &com,
+                                    &json,
+                                    &tx,
+                                    shared.clone(),
+                                    filesync.as_mut(),
+                                    tagsync.as_mut(),
+                                );
                             }
                             Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                         }
@@ -310,26 +346,27 @@ impl Backend {
 
             let mut data = mutex.lock().unwrap();
             if data.filesync {
-                let fs = filesync.get_or_insert_with(sync::Files::start);
-
+                let fs = filesync.get_or_insert_with(SyncFiles::start);
                 match fs.state() {
-                    sync::State::Finished => {
+                    FileSyncState::Finished => {
                         let mut fs = filesystem.lock().unwrap();
                         fs.rebuild(filesync.take().unwrap());
-                        tx.send(Event::FileSync(Sync::Completed)).unwrap();
+                        tx.send(Event::FileSync(FileSync::Completed)).unwrap();
                         data.filesync = false;
                     }
-                    sync::State::Timeout => {
+                    FileSyncState::Timeout => {
                         filesync.take();
                         tx.send(Event::Error(Error::Timeout)).unwrap();
+                        tx.send(Event::FileSync(FileSync::Aborted)).unwrap();
                         data.filesync = false;
                     }
-                    sync::State::Error(e) => {
+                    FileSyncState::Error(e) => {
                         filesync.take();
                         tx.send(Event::Error(e.into())).unwrap();
+                        tx.send(Event::FileSync(FileSync::Aborted)).unwrap();
                         data.filesync = false;
                     }
-                    sync::State::NextToSync(list) => {
+                    FileSyncState::NextToSync(list) => {
                         if list.is_empty() {
                             com.send(json.get_file_list(None));
                         } else {
@@ -338,7 +375,42 @@ impl Backend {
                             }
                         }
                     }
-                    sync::State::Waiting => (),
+                    FileSyncState::Waiting => (),
+                }
+            }
+            if let Some(dir) = &data.tagsync {
+                let ts = tagsync.get_or_insert_with(|| {
+                    let fs = filesystem.lock().unwrap();
+                    SyncTags::start(dir, fs)
+                });
+                match ts.state() {
+                    TagSyncState::Finished => {
+                        //let mut fs = filesystem.lock().unwrap();
+                        //fs.rebuild(tagsync.take().unwrap());
+                        tagsync.take();
+                        tx.send(Event::TagSync(TagSync::Completed)).unwrap();
+                        data.tagsync.take();
+                    }
+                    TagSyncState::Timeout => {
+                        tagsync.take();
+                        tx.send(Event::Error(Error::Timeout)).unwrap();
+                        tx.send(Event::TagSync(TagSync::Aborted)).unwrap();
+                        data.tagsync.take();
+                    }
+                    TagSyncState::Error(e) => {
+                        tagsync.take();
+                        tx.send(Event::Error(e.into())).unwrap();
+                        tx.send(Event::TagSync(TagSync::Aborted)).unwrap();
+                        data.tagsync.take();
+                    }
+                    TagSyncState::NextToSync(list, n_synced, n_total) => {
+                        tx.send(Event::TagSync(TagSync::Step(n_synced, n_total)))
+                            .unwrap();
+                        for file in list {
+                            com.send(json.get_track_info(file));
+                        }
+                    }
+                    TagSyncState::Waiting => (),
                 }
             }
         }
@@ -350,9 +422,11 @@ impl Backend {
         _com: &Com,
         _json: &Handler,
         tx: &Sender<Event>,
-        mut _data: MutexGuard<'_, SharedData>,
+        //mut _data: MutexGuard<'_, SharedData>,
+        _shared: Arc<(Mutex<SharedData>, Condvar)>,
         //database: &Database,
-        fs: Option<&mut sync::Files>,
+        fs: Option<&mut SyncFiles>,
+        ts: Option<&mut SyncTags>,
     ) {
         match msg {
             Message::Response(resp) => match resp {
@@ -453,6 +527,11 @@ impl Backend {
                         fs.insert_response(resp);
                     }
                 }
+                Response::TrackInfo(resp) => {
+                    if let Some(ts) = ts {
+                        ts.insert_response(resp);
+                    }
+                }
             },
         }
     }
@@ -474,8 +553,9 @@ impl Drop for Backend {
 impl From<&PathContent> for DirectoryContent {
     fn from(value: &PathContent) -> Self {
         Self {
+            cover: value.cover.clone(),
             dirs: value.dirs.clone(),
-            files: value.files.clone(),
+            tracks: value.tracks.clone(),
         }
     }
 }
