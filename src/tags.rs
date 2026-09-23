@@ -4,11 +4,6 @@ use crate::backend::{ChangeDirection, TagViewContent};
 use crate::sync::{SyncTags, TagSyncEntry};
 use crate::{Error, Result};
 
-type Genres = HashMap<String, Artists>;
-type Artists = HashMap<String, Albums>;
-type Albums = HashMap<String, Titles>;
-type Titles = HashMap<String, String>;
-
 #[derive(Default)]
 pub(crate) struct TagView {
     current: Vec<String>,
@@ -21,9 +16,24 @@ pub(crate) struct Tag {
     pub artist: String,
     pub album: String,
     pub title: String,
-    pub _date: Option<u16>,
-    pub _track: u16,
+    pub date: Option<u16>,
+    pub track: u16,
     pub _duration: u16,
+}
+
+type Genres = HashMap<String, Artists>;
+type Artists = HashMap<String, Albums>;
+type Albums = HashMap<String, Album>;
+type Titles = HashMap<String, Title>;
+
+struct Album {
+    date: Option<u16>,
+    titles: Titles,
+}
+
+struct Title {
+    _file: String,
+    track: u16,
 }
 
 impl TagView {
@@ -45,11 +55,23 @@ impl TagView {
             }
             let albums = artists.get_mut(&v.artist).unwrap();
             if !albums.contains_key(&v.album) {
-                albums.insert(v.album.clone(), HashMap::new());
+                albums.insert(
+                    v.album.clone(),
+                    Album {
+                        date: v.date,
+                        titles: HashMap::new(),
+                    },
+                );
             }
-            let titles = albums.get_mut(&v.album).unwrap();
-            if !titles.contains_key(&v.title) {
-                titles.insert(v.title.clone(), k.clone());
+            let album = albums.get_mut(&v.album).unwrap();
+            if !album.titles.contains_key(&v.title) {
+                album.titles.insert(
+                    v.title.clone(),
+                    Title {
+                        _file: k.clone(),
+                        track: v.track,
+                    },
+                );
             }
         }
     }
@@ -107,16 +129,31 @@ impl TagView {
             if let Some(artist) = self.current.get(1) {
                 let albums = artists.get(artist).unwrap();
                 if let Some(album) = self.current.get(2) {
-                    let titles = albums.get(album).unwrap();
-                    TagViewContent::Titles(titles.keys().cloned().collect())
+                    let album = albums.get(album).unwrap();
+                    let mut vec = Vec::new();
+                    for (k, v) in &album.titles {
+                        vec.push((k, v.track));
+                    }
+                    vec.sort_unstable_by_key(|t| t.1);
+                    TagViewContent::Titles(vec.into_iter().map(|(t, _)| t.clone()).collect())
                 } else {
-                    TagViewContent::Albums(albums.keys().cloned().collect())
+                    let mut vec = Vec::new();
+                    for (k, v) in albums {
+                        vec.push((k, v.date));
+                    }
+                    vec.sort_unstable_by_key(|a| a.0);
+                    vec.sort_by_key(|a| a.1);
+                    TagViewContent::Albums(vec.into_iter().map(|(a, _)| a.clone()).collect())
                 }
             } else {
-                TagViewContent::Artists(artists.keys().cloned().collect())
+                let mut artists: Vec<String> = artists.keys().cloned().collect();
+                artists.sort_unstable();
+                TagViewContent::Artists(artists)
             }
         } else {
-            TagViewContent::Genres(self.genres.keys().cloned().collect())
+            let mut genres: Vec<String> = self.genres.keys().cloned().collect();
+            genres.sort_unstable();
+            TagViewContent::Genres(genres)
         }
     }
 }
@@ -128,8 +165,8 @@ impl From<TagSyncEntry> for Tag {
             artist: value.artist,
             album: value.album,
             title: value.title,
-            _date: value.date,
-            _track: value.track,
+            date: value.date,
+            track: value.track,
             _duration: value.duration,
         }
     }
