@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use log::{error, info};
 
 use crate::common::jsonrpc;
-use crate::filesystem::FileSystem;
+use crate::files::FileView;
 use crate::json::{FileList, TrackInfo};
 
 const PARALLEL_REQUESTS: usize = 5;
@@ -32,7 +32,7 @@ pub(crate) struct SyncTags {
     starttime: Instant,
     timestamp: Instant,
     error: Option<jsonrpc::ExecError>,
-    map: HashMap<String, TagSyncEntry>,
+    pub map: HashMap<String, TagSyncEntry>,
 }
 
 #[derive(Debug, Default)]
@@ -168,10 +168,10 @@ impl<'a> SyncFiles {
 }
 
 impl<'a> SyncTags {
-    pub(crate) fn start(dir: &str, fs: MutexGuard<FileSystem>) -> Self {
+    pub(crate) fn start(dir: &str, fv: MutexGuard<FileView>) -> Self {
         let mut map = HashMap::new();
-        for t in fs.get_all_tracks_in_tree(dir) {
-            map.insert(t, TagSyncEntry::default());
+        for track in fv.get_all_tracks_in_tree(dir) {
+            map.insert(track, TagSyncEntry::default());
         }
         info!("try to sync {} tags", map.len());
         Self {

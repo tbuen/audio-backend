@@ -13,9 +13,10 @@ use crate::common::jsonrpc;
 use crate::event::{
     About, Connection, Event, File, FileSync, Heap, Memory, Network, SPIFlash, TagSync,
 };
-use crate::filesystem::{FileSystem, PathContent};
+use crate::files::FileView;
 use crate::json::{self, Handler, Message, Response};
 use crate::sync::{FileSyncState, SyncFiles, SyncTags, TagSyncState};
+use crate::tags::TagView;
 use crate::{Error, Result};
 
 pub struct Backend {
@@ -24,21 +25,32 @@ pub struct Backend {
     evt: Sender<Event>,
     receiver: Cell<Option<Receiver<Event>>>,
     shared: Arc<(Mutex<SharedData>, Condvar)>,
-    filesystem: Arc<Mutex<FileSystem>>,
+    fileview: Arc<Mutex<FileView>>,
+    tagview: Arc<Mutex<TagView>>,
 }
 
 #[derive(Debug)]
-pub enum ChangeDirectory<'a> {
+pub enum ChangeDirection<'a> {
     ToRoot,
     ToParent,
     ToChild(&'a str),
 }
 
-#[derive(Debug)]
-pub struct DirectoryContent {
-    pub cover: Option<String>,
-    pub dirs: Vec<String>,
-    pub tracks: Vec<String>,
+#[derive(Debug, Clone)]
+pub enum FileViewContent {
+    Folders(Vec<String>),
+    Files {
+        cover: Option<String>,
+        tracks: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum TagViewContent {
+    Genres(Vec<String>),
+    Artists(Vec<String>),
+    Albums(Vec<String>),
+    Titles(Vec<String>),
 }
 
 enum Command {
@@ -70,13 +82,15 @@ impl Backend {
         let evt = tx.clone();
         let receiver = Cell::new(Some(receiver));
         let shared = Arc::new((Mutex::new(SharedData::default()), Condvar::new()));
-        let filesystem = Arc::new(Mutex::new(FileSystem::new()));
+        let fileview = Arc::new(Mutex::new(FileView::new()));
+        let tagview = Arc::new(Mutex::new(TagView::new()));
         let handle = {
             let shared_thread = shared.clone();
-            let filesystem_thread = filesystem.clone();
+            let fileview_thread = fileview.clone();
+            let tagview_thread = tagview.clone();
             Builder::new()
                 .name("audio:backend".into())
-                .spawn(move || Self::thread(tx, rx, shared_thread, filesystem_thread))
+                .spawn(move || Self::thread(tx, rx, shared_thread, fileview_thread, tagview_thread))
                 .unwrap()
         };
         Self {
@@ -85,7 +99,8 @@ impl Backend {
             evt,
             receiver,
             shared,
-            filesystem,
+            fileview,
+            tagview,
         }
     }
 
@@ -209,8 +224,8 @@ impl Backend {
         } else if data.filesync || data.tagsync.is_some() {
             self.evt.send(Event::Error(Error::Busy)).unwrap();
         } else {
-            let fs = self.filesystem.lock().unwrap();
-            match fs.current_directory_with_prefix() {
+            let f = self.fileview.lock().unwrap();
+            match f.current_with_prefix() {
                 Ok(dir) => {
                     data.tagsync = Some(dir);
                     self.evt.send(Event::TagSync(TagSync::Started)).unwrap();
@@ -220,27 +235,42 @@ impl Backend {
         }
     }
 
-    pub fn current_directory(&self) -> Result<Vec<String>> {
-        let fs = self.filesystem.lock().unwrap();
-        fs.current_directory()
-            .map(|path| path.split('/').map(ToOwned::to_owned).collect())
+    pub fn fileview_current(&self) -> Vec<String> {
+        let f = self.fileview.lock().unwrap();
+        f.current().split('/').map(ToOwned::to_owned).collect()
     }
 
-    pub fn change_directory(&self, to: ChangeDirectory) -> Result<()> {
-        let mut fs = self.filesystem.lock().unwrap();
-        fs.change_directory(to)
+    pub fn fileview_change(&self, to: ChangeDirection) -> Result<()> {
+        let mut f = self.fileview.lock().unwrap();
+        f.change(to)
     }
 
-    pub fn directory_content(&self) -> Result<DirectoryContent> {
-        let fs = self.filesystem.lock().unwrap();
-        fs.directory_content().map(Into::into)
+    pub fn fileview_content(&self) -> FileViewContent {
+        let f = self.fileview.lock().unwrap();
+        f.content()
+    }
+
+    pub fn tagview_current(&self) -> Vec<String> {
+        let t = self.tagview.lock().unwrap();
+        t.current().clone()
+    }
+
+    pub fn tagview_change(&self, to: ChangeDirection) -> Result<()> {
+        let mut t = self.tagview.lock().unwrap();
+        t.change(to)
+    }
+
+    pub fn tagview_content(&self) -> TagViewContent {
+        let t = self.tagview.lock().unwrap();
+        t.content()
     }
 
     fn thread(
         tx: Sender<Event>,
         rx: Receiver<Command>,
         shared: Arc<(Mutex<SharedData>, Condvar)>,
-        filesystem: Arc<Mutex<FileSystem>>,
+        fileview: Arc<Mutex<FileView>>,
+        tagview: Arc<Mutex<TagView>>,
     ) {
         let com = Com::new();
         let json = Handler::default();
@@ -349,8 +379,8 @@ impl Backend {
                 let fs = filesync.get_or_insert_with(SyncFiles::start);
                 match fs.state() {
                     FileSyncState::Finished => {
-                        let mut fs = filesystem.lock().unwrap();
-                        fs.rebuild(filesync.take().unwrap());
+                        let mut f = fileview.lock().unwrap();
+                        f.rebuild(filesync.take().unwrap());
                         tx.send(Event::FileSync(FileSync::Completed)).unwrap();
                         data.filesync = false;
                     }
@@ -380,14 +410,13 @@ impl Backend {
             }
             if let Some(dir) = &data.tagsync {
                 let ts = tagsync.get_or_insert_with(|| {
-                    let fs = filesystem.lock().unwrap();
-                    SyncTags::start(dir, fs)
+                    let f = fileview.lock().unwrap();
+                    SyncTags::start(dir, f)
                 });
                 match ts.state() {
                     TagSyncState::Finished => {
-                        //let mut fs = filesystem.lock().unwrap();
-                        //fs.rebuild(tagsync.take().unwrap());
-                        tagsync.take();
+                        let mut t = tagview.lock().unwrap();
+                        t.rebuild(tagsync.take().unwrap());
                         tx.send(Event::TagSync(TagSync::Completed)).unwrap();
                         data.tagsync.take();
                     }
@@ -547,16 +576,6 @@ impl Drop for Backend {
     fn drop(&mut self) {
         self.cmd.send(Command::Quit).unwrap();
         self.handle.take().unwrap().join().unwrap();
-    }
-}
-
-impl From<&PathContent> for DirectoryContent {
-    fn from(value: &PathContent) -> Self {
-        Self {
-            cover: value.cover.clone(),
-            dirs: value.dirs.clone(),
-            tracks: value.tracks.clone(),
-        }
     }
 }
 

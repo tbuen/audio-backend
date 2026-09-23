@@ -2,9 +2,10 @@ mod backend;
 mod com;
 mod common;
 mod event;
-mod filesystem;
+mod files;
 mod json;
 mod sync;
+mod tags;
 
 pub use crate::backend::*;
 pub use crate::event::*;
