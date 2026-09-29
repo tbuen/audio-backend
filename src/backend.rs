@@ -64,6 +64,7 @@ enum Command {
     GetWiFiNetworkList,
     SetWiFiNetwork { ssid: String, key: String },
     DeleteWiFiNetwork { ssid: String },
+    SetVolume { left: i32, right: i32 },
     Quit,
 }
 
@@ -265,6 +266,21 @@ impl Backend {
         t.content()
     }
 
+    pub fn set_volume(&self, value: i32) {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if data.connected {
+            self.cmd
+                .send(Command::SetVolume {
+                    left: value,
+                    right: value,
+                })
+                .unwrap();
+        } else {
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
+        }
+    }
+
     fn thread(
         tx: Sender<Event>,
         rx: Receiver<Command>,
@@ -320,6 +336,9 @@ impl Backend {
                     }
                     Command::DeleteWiFiNetwork { ssid } => {
                         com.send(json.delete_wifi_network(&ssid));
+                    }
+                    Command::SetVolume { left, right } => {
+                        com.send(json.set_volume(left, right));
                     }
                     Command::Quit => {
                         debug!("quit received");
@@ -561,6 +580,13 @@ impl Backend {
                         ts.insert_response(resp);
                     }
                 }
+                Response::SetVolume(res) => match res {
+                    Ok(_empty) => {
+                        let evt = Event::SetVolume;
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
+                },
             },
         }
     }

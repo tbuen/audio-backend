@@ -16,6 +16,7 @@ const SET_WIFI_NETWORK: &str = "set-wifi-network";
 const DELETE_WIFI_NETWORK: &str = "delete-wifi-network";
 const GET_FILE_LIST: &str = "get-file-list";
 const GET_TRACK_INFO: &str = "get-track-info";
+const SET_VOLUME: &str = "set-volume";
 
 #[derive(Debug, Clone)]
 pub(crate) enum Error {
@@ -45,6 +46,7 @@ pub(crate) enum Response {
     DeleteNetwork(Result<Empty, jsonrpc::ExecError>),
     FileList(Result<FileList, jsonrpc::ExecError>),
     TrackInfo(Result<TrackInfo, jsonrpc::ExecError>),
+    SetVolume(Result<Empty, jsonrpc::ExecError>),
 }
 
 #[derive(Deserialize)]
@@ -170,6 +172,11 @@ impl Handler {
         self.jsonrpc.build_request(GET_TRACK_INFO, Some(params))
     }
 
+    pub(crate) fn set_volume(&self, left: i32, right: i32) -> String {
+        let params = json!({"left":left,"right":right});
+        self.jsonrpc.build_request(SET_VOLUME, Some(params))
+    }
+
     pub(crate) fn parse(&self, msg: &str) -> Result<Message, Error> {
         macro_rules! parse {
             ($data:expr, $type:path) => {
@@ -196,6 +203,7 @@ impl Handler {
                     DELETE_WIFI_NETWORK => parse!(data, Response::DeleteNetwork),
                     GET_FILE_LIST => parse!(data, Response::FileList),
                     GET_TRACK_INFO => parse!(data, Response::TrackInfo),
+                    SET_VOLUME => parse!(data, Response::SetVolume),
                     _ => Err(Error::UnknownMethod(method.to_owned())),
                 },
             },
