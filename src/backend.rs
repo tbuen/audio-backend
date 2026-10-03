@@ -70,6 +70,7 @@ enum Command {
     GetWiFiNetworkList,
     SetWiFiNetwork { ssid: String, key: String },
     DeleteWiFiNetwork { ssid: String },
+    PlayTrack { file: String },
     SetVolume { left: i32, right: i32 },
     Quit,
 }
@@ -272,6 +273,16 @@ impl Backend {
         t.content()
     }
 
+    pub fn play_track(&self, file: String) {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if data.connected {
+            self.cmd.send(Command::PlayTrack { file }).unwrap();
+        } else {
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
+        }
+    }
+
     pub fn set_volume(&self, value: i32) {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
@@ -342,6 +353,9 @@ impl Backend {
                     }
                     Command::DeleteWiFiNetwork { ssid } => {
                         com.send(json.delete_wifi_network(&ssid));
+                    }
+                    Command::PlayTrack { file } => {
+                        com.send(json.play_track(&file));
                     }
                     Command::SetVolume { left, right } => {
                         com.send(json.set_volume(left, right));
@@ -583,6 +597,13 @@ impl Backend {
                         ts.insert_response(resp);
                     }
                 }
+                Response::PlayTrack(res) => match res {
+                    Ok(_empty) => {
+                        let evt = Event::PlayTrack;
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
+                },
                 Response::SetVolume(res) => match res {
                     Ok(_empty) => {
                         let evt = Event::SetVolume;

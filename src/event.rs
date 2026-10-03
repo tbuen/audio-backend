@@ -14,6 +14,7 @@ pub enum Event {
     WiFiDeleteNetwork,
     FileSync(FileSync),
     TagSync(TagSync),
+    PlayTrack,
     SetVolume,
     Volume(i32),
     Error(Error),

@@ -16,6 +16,7 @@ const SET_WIFI_NETWORK: &str = "set-wifi-network";
 const DELETE_WIFI_NETWORK: &str = "delete-wifi-network";
 const GET_FILE_LIST: &str = "get-file-list";
 const GET_TRACK_INFO: &str = "get-track-info";
+const PLAY_TRACK: &str = "play-track";
 const SET_VOLUME: &str = "set-volume";
 
 const VOLUME: &str = "volume";
@@ -48,6 +49,7 @@ pub(crate) enum Response {
     DeleteNetwork(Result<Empty, jsonrpc::ExecError>),
     FileList(Result<FileList, jsonrpc::ExecError>),
     TrackInfo(Result<TrackInfo, jsonrpc::ExecError>),
+    PlayTrack(Result<Empty, jsonrpc::ExecError>),
     SetVolume(Result<Empty, jsonrpc::ExecError>),
 }
 
@@ -184,6 +186,11 @@ impl Handler {
         self.jsonrpc.build_request(GET_TRACK_INFO, Some(params))
     }
 
+    pub(crate) fn play_track(&self, file: &str) -> String {
+        let params = json!({"file":file});
+        self.jsonrpc.build_request(PLAY_TRACK, Some(params))
+    }
+
     pub(crate) fn set_volume(&self, left: i32, right: i32) -> String {
         let params = json!({"left":left,"right":right});
         self.jsonrpc.build_request(SET_VOLUME, Some(params))
@@ -226,6 +233,7 @@ impl Handler {
                     DELETE_WIFI_NETWORK => parse_resp!(data, Response::DeleteNetwork),
                     GET_FILE_LIST => parse_resp!(data, Response::FileList),
                     GET_TRACK_INFO => parse_resp!(data, Response::TrackInfo),
+                    PLAY_TRACK => parse_resp!(data, Response::PlayTrack),
                     SET_VOLUME => parse_resp!(data, Response::SetVolume),
                     _ => Err(Error::UnknownMethod(method.to_owned())),
                 },
