@@ -10,7 +10,7 @@ const RPC_VERSION: &str = "2.0";
 
 #[derive(Debug, Clone)]
 pub(crate) enum Error {
-    Parsing(String),
+    Parsing,
     InvalidVersion(String),
     InvalidMessage,
     InvalidId,
@@ -27,10 +27,10 @@ pub(crate) enum Message<'a> {
         method: &'a str,
         data: Result<Value, ExecError>,
     },
-    //Notification {
-    //    method: &'a str,
-    //    data: Value,
-    //},
+    Notification {
+        method: &'a str,
+        params: Option<Value>,
+    },
 }
 
 #[derive(Deserialize, Debug)]
@@ -58,7 +58,15 @@ struct Response<'a> {
     id: Option<u32>,
 }
 
-impl Handler {
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Notification<'a> {
+    jsonrpc: &'a str,
+    method: &'a str,
+    params: Option<Value>,
+}
+
+impl<'a> Handler {
     pub(crate) fn build_request(&self, method: &'static str, params: Option<Value>) -> String {
         let id = self.id.get() + 1;
         self.id.set(id);
@@ -72,32 +80,40 @@ impl Handler {
         serde_json::to_string(&request).unwrap()
     }
 
-    pub(crate) fn parse(&self, msg: &str) -> Result<Message<'_>, Error> {
-        match serde_json::from_str::<Response>(msg) {
-            Ok(rpc) => {
-                if rpc.jsonrpc != RPC_VERSION {
-                    Err(Error::InvalidVersion(rpc.jsonrpc.to_owned()))
-                } else if let Some(id) = rpc.id
-                    && let Some(method) = self.map.borrow_mut().remove(&id)
-                {
-                    if let Some(error) = rpc.error {
-                        Ok(Message::Response {
-                            method,
-                            data: Err(error),
-                        })
-                    } else if let Some(result) = rpc.result {
-                        Ok(Message::Response {
-                            method,
-                            data: Ok(result),
-                        })
-                    } else {
-                        Err(Error::InvalidMessage)
-                    }
+    pub(crate) fn parse(&self, msg: &'a str) -> Result<Message<'a>, Error> {
+        if let Ok(rpc) = serde_json::from_str::<Response>(msg) {
+            if rpc.jsonrpc != RPC_VERSION {
+                Err(Error::InvalidVersion(rpc.jsonrpc.to_owned()))
+            } else if let Some(id) = rpc.id
+                && let Some(method) = self.map.borrow_mut().remove(&id)
+            {
+                if let Some(error) = rpc.error {
+                    Ok(Message::Response {
+                        method,
+                        data: Err(error),
+                    })
+                } else if let Some(result) = rpc.result {
+                    Ok(Message::Response {
+                        method,
+                        data: Ok(result),
+                    })
                 } else {
-                    Err(Error::InvalidId)
+                    Err(Error::InvalidMessage)
                 }
+            } else {
+                Err(Error::InvalidId)
             }
-            Err(e) => Err(e.into()),
+        } else if let Ok(rpc) = serde_json::from_str::<Notification>(msg) {
+            if rpc.jsonrpc == RPC_VERSION {
+                Ok(Message::Notification {
+                    method: rpc.method,
+                    params: rpc.params,
+                })
+            } else {
+                Err(Error::InvalidVersion(rpc.jsonrpc.to_owned()))
+            }
+        } else {
+            Err(Error::Parsing)
         }
     }
 }
@@ -115,16 +131,10 @@ impl error::Error for Error {}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Parsing(s) => write!(f, "could not parse response: {s}"),
+            Error::Parsing => write!(f, "could not parse message from device"),
             Error::InvalidVersion(s) => write!(f, "invalid version: {s}"),
             Error::InvalidMessage => write!(f, "received neither result nor error"),
             Error::InvalidId => write!(f, "received unrelated message id"),
         }
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(value: serde_json::Error) -> Self {
-        Error::Parsing(value.to_string())
     }
 }

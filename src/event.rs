@@ -15,6 +15,7 @@ pub enum Event {
     FileSync(FileSync),
     TagSync(TagSync),
     SetVolume,
+    Volume(i32),
     Error(Error),
 }
 

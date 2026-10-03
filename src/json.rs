@@ -18,6 +18,8 @@ const GET_FILE_LIST: &str = "get-file-list";
 const GET_TRACK_INFO: &str = "get-track-info";
 const SET_VOLUME: &str = "set-volume";
 
+const VOLUME: &str = "volume";
+
 #[derive(Debug, Clone)]
 pub(crate) enum Error {
     JsonRpc(String),
@@ -32,7 +34,7 @@ pub(crate) struct Handler {
 
 pub(crate) enum Message {
     Response(Response),
-    //Notification,
+    Notification(Notification),
 }
 
 pub(crate) enum Response {
@@ -47,6 +49,10 @@ pub(crate) enum Response {
     FileList(Result<FileList, jsonrpc::ExecError>),
     TrackInfo(Result<TrackInfo, jsonrpc::ExecError>),
     SetVolume(Result<Empty, jsonrpc::ExecError>),
+}
+
+pub(crate) enum Notification {
+    Volume(Volume),
 }
 
 #[derive(Deserialize)]
@@ -122,6 +128,12 @@ pub(crate) struct TrackInfo {
     pub duration: u16,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct Volume {
+    pub left: i32,
+    pub right: i32,
+}
+
 #[allow(clippy::empty_structs_with_brackets)]
 #[derive(Deserialize)]
 pub(crate) struct Empty {}
@@ -178,7 +190,7 @@ impl Handler {
     }
 
     pub(crate) fn parse(&self, msg: &str) -> Result<Message, Error> {
-        macro_rules! parse {
+        macro_rules! parse_resp {
             ($data:expr, $type:path) => {
                 match $data {
                     Ok(v) => match serde_json::from_value(v) {
@@ -189,21 +201,36 @@ impl Handler {
                 }
             };
         }
+        macro_rules! parse_ntfn {
+            ($params:expr, $type:path) => {
+                match $params {
+                    Some(v) => match serde_json::from_value(v) {
+                        Ok(o) => Ok(Message::Notification($type(o))),
+                        Err(e) => Err(e.into()),
+                    },
+                    None => Err(Error::Parsing("missing parameters".into())),
+                }
+            };
+        }
 
         match self.jsonrpc.parse(msg) {
             Ok(msg) => match msg {
                 jsonrpc::Message::Response { method, data } => match method {
-                    GET_INFO_CONNECTION => parse!(data, Response::InfoConnection),
-                    GET_INFO_ABOUT => parse!(data, Response::InfoAbout),
-                    GET_INFO_MEMORY => parse!(data, Response::InfoMemory),
-                    GET_INFO_SPIFLASH => parse!(data, Response::InfoSPIFlash),
-                    GET_WIFI_SCAN_RESULT => parse!(data, Response::ScanResult),
-                    GET_WIFI_NETWORK_LIST => parse!(data, Response::NetworkList),
-                    SET_WIFI_NETWORK => parse!(data, Response::SetNetwork),
-                    DELETE_WIFI_NETWORK => parse!(data, Response::DeleteNetwork),
-                    GET_FILE_LIST => parse!(data, Response::FileList),
-                    GET_TRACK_INFO => parse!(data, Response::TrackInfo),
-                    SET_VOLUME => parse!(data, Response::SetVolume),
+                    GET_INFO_CONNECTION => parse_resp!(data, Response::InfoConnection),
+                    GET_INFO_ABOUT => parse_resp!(data, Response::InfoAbout),
+                    GET_INFO_MEMORY => parse_resp!(data, Response::InfoMemory),
+                    GET_INFO_SPIFLASH => parse_resp!(data, Response::InfoSPIFlash),
+                    GET_WIFI_SCAN_RESULT => parse_resp!(data, Response::ScanResult),
+                    GET_WIFI_NETWORK_LIST => parse_resp!(data, Response::NetworkList),
+                    SET_WIFI_NETWORK => parse_resp!(data, Response::SetNetwork),
+                    DELETE_WIFI_NETWORK => parse_resp!(data, Response::DeleteNetwork),
+                    GET_FILE_LIST => parse_resp!(data, Response::FileList),
+                    GET_TRACK_INFO => parse_resp!(data, Response::TrackInfo),
+                    SET_VOLUME => parse_resp!(data, Response::SetVolume),
+                    _ => Err(Error::UnknownMethod(method.to_owned())),
+                },
+                jsonrpc::Message::Notification { method, params } => match method {
+                    VOLUME => parse_ntfn!(params, Notification::Volume),
                     _ => Err(Error::UnknownMethod(method.to_owned())),
                 },
             },
@@ -218,7 +245,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::JsonRpc(s) => write!(f, "jsonrpc: {s}"),
-            Error::Parsing(s) => write!(f, "could not parse response: {s}"),
+            Error::Parsing(s) => write!(f, "could not parse message from device: {s}"),
             Error::UnknownMethod(s) => write!(f, "received unknown method: {s}"),
         }
     }

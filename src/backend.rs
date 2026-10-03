@@ -14,7 +14,7 @@ use crate::event::{
     About, Connection, Event, File, FileSync, Heap, Memory, Network, SPIFlash, TagSync,
 };
 use crate::files::FileView;
-use crate::json::{self, Handler, Message, Response};
+use crate::json::{self, Handler, Message, Notification, Response};
 use crate::sync::{FileSyncState, SyncFiles, SyncTags, TagSyncState};
 use crate::tags::TagView;
 use crate::{Error, Result};
@@ -535,10 +535,7 @@ impl Backend {
                     Ok(list) => {
                         let mut networks = Vec::new();
                         for e in list {
-                            networks.push(Network {
-                                ssid: e.ssid,
-                                rssi: e.rssi,
-                            });
+                            networks.push(e.into());
                         }
                         let evt = Event::WiFiScanResult(networks);
                         tx.send(evt).unwrap();
@@ -588,6 +585,12 @@ impl Backend {
                     Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
             },
+            Message::Notification(ntfn) => match ntfn {
+                Notification::Volume(vol) => {
+                    let evt = Event::Volume(vol.into());
+                    tx.send(evt).unwrap();
+                }
+            },
         }
     }
 }
@@ -617,5 +620,21 @@ impl From<jsonrpc::ExecError> for Error {
             code: value.code,
             message: value.message,
         }
+    }
+}
+
+impl From<json::ScannedNetwork> for Network {
+    fn from(value: json::ScannedNetwork) -> Self {
+        Network {
+            ssid: value.ssid,
+            rssi: value.rssi,
+        }
+    }
+}
+
+impl From<json::Volume> for i32 {
+    fn from(value: json::Volume) -> Self {
+        _ = value.right;
+        value.left
     }
 }
