@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use log::{error, info};
 
+use crate::backend::Element;
 use crate::common::jsonrpc;
 use crate::files::FileView;
 use crate::json::{FileList, TrackInfo};
@@ -23,9 +24,9 @@ pub(crate) struct SyncFiles {
 #[derive(Debug, Default)]
 pub(crate) struct FileSyncEntry {
     step: SyncStep,
-    pub cover: Option<String>,
+    pub cover: Option<Element>,
     pub dirs: Vec<String>,
-    pub tracks: Vec<String>,
+    pub tracks: Vec<Element>,
 }
 
 pub(crate) struct SyncTags {
@@ -144,7 +145,7 @@ impl<'a> SyncFiles {
                         self.map.insert(p, FileSyncEntry::default());
                     }
                 }
-                let entry = self.map.entry(list.path).or_default();
+                let entry = self.map.entry(list.path.clone()).or_default();
                 entry.step = SyncStep::Received;
                 if let Some(dirs) = list.dirs {
                     for d in dirs {
@@ -153,10 +154,16 @@ impl<'a> SyncFiles {
                 }
                 if let Some(tracks) = list.tracks {
                     for t in tracks {
-                        entry.tracks.push(t);
+                        entry.tracks.push(Element {
+                            file: format!("{}/{}", list.path, t),
+                            name: t,
+                        });
                     }
                 }
-                entry.cover = list.cover;
+                entry.cover = list.cover.map(|c| Element {
+                    file: format!("{}/{}", list.path, c),
+                    name: c,
+                });
                 self.timestamp = Instant::now();
             }
             Err(e) => {

@@ -40,8 +40,8 @@ pub enum ChangeDirection<'a> {
 pub enum FileViewContent {
     Folders(Vec<String>),
     Files {
-        cover: Option<String>,
-        tracks: Vec<String>,
+        cover: Option<Element>,
+        tracks: Vec<Element>,
     },
 }
 
@@ -50,7 +50,13 @@ pub enum TagViewContent {
     Genres(Vec<String>),
     Artists(Vec<String>),
     Albums(Vec<String>),
-    Titles(Vec<String>),
+    Tracks(Vec<Element>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Element {
+    pub name: String,
+    pub file: String,
 }
 
 enum Command {

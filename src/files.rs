@@ -86,7 +86,7 @@ impl FileView {
                     }
                     FileViewContent::Files { tracks, .. } => {
                         for t in tracks {
-                            vec.push(format!("{dir}/{t}"));
+                            vec.push(t.file.clone());
                         }
                     }
                 }
@@ -104,7 +104,7 @@ impl From<FileSyncEntry> for FileViewContent {
         if value.dirs.is_empty() {
             let cover = value.cover;
             let mut tracks = value.tracks;
-            tracks.sort_unstable();
+            tracks.sort_unstable_by(|a, b| a.name.cmp(&b.name));
             FileViewContent::Files { cover, tracks }
         } else {
             let mut folders = value.dirs;

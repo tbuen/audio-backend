@@ -1,8 +1,9 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::backend::{ChangeDirection, TagViewContent};
 use crate::sync::{SyncTags, TagSyncEntry};
-use crate::{Error, Result};
+use crate::{Element, Error, Result};
 
 #[derive(Default)]
 pub(crate) struct TagView {
@@ -24,16 +25,16 @@ pub(crate) struct Tag {
 type Genres = HashMap<String, Artists>;
 type Artists = HashMap<String, Albums>;
 type Albums = HashMap<String, Album>;
-type Titles = HashMap<String, Title>;
+type Tracks = HashMap<String, Track>;
 
 struct Album {
     date: Option<u16>,
-    titles: Titles,
+    tracks: Tracks,
 }
 
-struct Title {
-    _file: String,
-    track: u16,
+struct Track {
+    file: String,
+    number: u16,
 }
 
 impl TagView {
@@ -59,17 +60,17 @@ impl TagView {
                     v.album.clone(),
                     Album {
                         date: v.date,
-                        titles: HashMap::new(),
+                        tracks: HashMap::new(),
                     },
                 );
             }
             let album = albums.get_mut(&v.album).unwrap();
-            if !album.titles.contains_key(&v.title) {
-                album.titles.insert(
+            if !album.tracks.contains_key(&v.title) {
+                album.tracks.insert(
                     v.title.clone(),
-                    Title {
-                        _file: k.clone(),
-                        track: v.track,
+                    Track {
+                        file: k.clone(),
+                        number: v.track,
                     },
                 );
             }
@@ -131,15 +132,22 @@ impl TagView {
                 if let Some(album) = self.current.get(2) {
                     let album = albums.get(album).unwrap();
                     let mut vec = Vec::new();
-                    for (k, v) in &album.titles {
-                        vec.push((k, v.track));
+                    for (k, v) in &album.tracks {
+                        vec.push((k, v));
                     }
                     vec.sort_unstable_by_key(|t| t.1);
-                    TagViewContent::Titles(vec.into_iter().map(|(t, _)| t.clone()).collect())
+                    TagViewContent::Tracks(
+                        vec.into_iter()
+                            .map(|(s, t)| Element {
+                                name: s.clone(),
+                                file: t.file.clone(),
+                            })
+                            .collect(),
+                    )
                 } else {
                     let mut vec = Vec::new();
                     for (k, v) in albums {
-                        vec.push((k, v.date));
+                        vec.push((k, v));
                     }
                     vec.sort_unstable_by_key(|a| a.0);
                     vec.sort_by_key(|a| a.1);
@@ -171,3 +179,43 @@ impl From<TagSyncEntry> for Tag {
         }
     }
 }
+
+impl Ord for Album {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.date.cmp(&other.date)
+    }
+}
+
+impl PartialOrd for Album {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Album {
+    fn eq(&self, other: &Self) -> bool {
+        self.date == other.date
+    }
+}
+
+impl Eq for Album {}
+
+impl Ord for Track {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.number.cmp(&other.number)
+    }
+}
+
+impl PartialOrd for Track {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Track {
+    fn eq(&self, other: &Self) -> bool {
+        self.number == other.number
+    }
+}
+
+impl Eq for Track {}
