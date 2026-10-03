@@ -33,7 +33,7 @@ struct Album {
 }
 
 struct Track {
-    file: String,
+    title: String,
     number: u16,
 }
 
@@ -65,11 +65,11 @@ impl TagView {
                 );
             }
             let album = albums.get_mut(&v.album).unwrap();
-            if !album.tracks.contains_key(&v.title) {
+            if !album.tracks.contains_key(k) {
                 album.tracks.insert(
-                    v.title.clone(),
+                    k.clone(),
                     Track {
-                        file: k.clone(),
+                        title: v.title.clone(),
                         number: v.track,
                     },
                 );
@@ -139,8 +139,8 @@ impl TagView {
                     TagViewContent::Tracks(
                         vec.into_iter()
                             .map(|(s, t)| Element {
-                                name: s.clone(),
-                                file: t.file.clone(),
+                                name: t.title.clone(),
+                                file: s.clone(),
                             })
                             .collect(),
                     )
