@@ -15,6 +15,7 @@ pub enum Event {
     FileSync(FileSync),
     TagSync(TagSync),
     PlayTrack,
+    StopPlay,
     SetVolume,
     Volume(i32),
     Error(Error),

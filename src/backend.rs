@@ -71,6 +71,7 @@ enum Command {
     SetWiFiNetwork { ssid: String, key: String },
     DeleteWiFiNetwork { ssid: String },
     PlayTrack { file: String },
+    StopPlay,
     SetVolume { left: i32, right: i32 },
     Quit,
 }
@@ -283,6 +284,16 @@ impl Backend {
         }
     }
 
+    pub fn stop_play(&self) {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if data.connected {
+            self.cmd.send(Command::StopPlay).unwrap();
+        } else {
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
+        }
+    }
+
     pub fn set_volume(&self, value: i32) {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
@@ -356,6 +367,9 @@ impl Backend {
                     }
                     Command::PlayTrack { file } => {
                         com.send(json.play_track(&file));
+                    }
+                    Command::StopPlay => {
+                        com.send(json.stop_play());
                     }
                     Command::SetVolume { left, right } => {
                         com.send(json.set_volume(left, right));
@@ -600,6 +614,13 @@ impl Backend {
                 Response::PlayTrack(res) => match res {
                     Ok(_empty) => {
                         let evt = Event::PlayTrack;
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
+                },
+                Response::StopPlay(res) => match res {
+                    Ok(_empty) => {
+                        let evt = Event::StopPlay;
                         tx.send(evt).unwrap();
                     }
                     Err(e) => tx.send(Event::Error(e.into())).unwrap(),
