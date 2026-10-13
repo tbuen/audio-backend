@@ -18,6 +18,7 @@ pub enum Event {
     StopPlay,
     SetVolume,
     Volume(i32),
+    AudioState(AudioState),
     Error(Error),
 }
 
@@ -79,4 +80,11 @@ pub enum TagSync {
     Step(usize, usize),
     Completed,
     Aborted,
+}
+
+#[derive(Debug, Clone)]
+pub enum AudioState {
+    Stop,
+    Pause { file: String, pos: u16 },
+    Play { file: String, pos: u16 },
 }

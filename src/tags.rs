@@ -1,25 +1,15 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::backend::{ChangeDirection, TagViewContent};
 use crate::sync::{SyncTags, TagSyncEntry};
-use crate::{Element, Error, Result};
+use crate::{ChangeDirection, Element, Tag, TagViewContent};
+use crate::{Error, Result};
 
 #[derive(Default)]
 pub(crate) struct TagView {
     current: Vec<String>,
     map: HashMap<String, Tag>,
     genres: Genres,
-}
-
-pub(crate) struct Tag {
-    pub genre: String,
-    pub artist: String,
-    pub album: String,
-    pub title: String,
-    pub date: Option<u16>,
-    pub track: u16,
-    pub _duration: u16,
 }
 
 type Genres = HashMap<String, Artists>;
@@ -164,6 +154,10 @@ impl TagView {
             TagViewContent::Genres(genres)
         }
     }
+
+    pub(crate) fn tag(&self, file: &str) -> Option<&Tag> {
+        self.map.get(file)
+    }
 }
 
 impl From<TagSyncEntry> for Tag {
@@ -175,7 +169,7 @@ impl From<TagSyncEntry> for Tag {
             title: value.title,
             date: value.date,
             track: value.track,
-            _duration: value.duration,
+            duration: value.duration,
         }
     }
 }

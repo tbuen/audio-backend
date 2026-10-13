@@ -21,6 +21,7 @@ const STOP_PLAY: &str = "stop-play";
 const SET_VOLUME: &str = "set-volume";
 
 const VOLUME: &str = "volume";
+const AUDIO_STATE: &str = "audio-state";
 
 #[derive(Debug, Clone)]
 pub(crate) enum Error {
@@ -57,6 +58,7 @@ pub(crate) enum Response {
 
 pub(crate) enum Notification {
     Volume(Volume),
+    AudioState(AudioState),
 }
 
 #[derive(Deserialize)]
@@ -136,6 +138,13 @@ pub(crate) struct TrackInfo {
 pub(crate) struct Volume {
     pub left: i32,
     pub right: i32,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AudioState {
+    pub mode: String,
+    pub file: Option<String>,
+    pub pos: u16,
 }
 
 #[allow(clippy::empty_structs_with_brackets)]
@@ -246,6 +255,7 @@ impl Handler {
                 },
                 jsonrpc::Message::Notification { method, params } => match method {
                     VOLUME => parse_ntfn!(params, Notification::Volume),
+                    AUDIO_STATE => parse_ntfn!(params, Notification::AudioState),
                     _ => Err(Error::UnknownMethod(method.to_owned())),
                 },
             },

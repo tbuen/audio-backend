@@ -11,7 +11,7 @@ use crate::com::{Com, Event as ComEvent};
 use crate::common::access_point::Connector;
 use crate::common::jsonrpc;
 use crate::event::{
-    About, Connection, Event, File, FileSync, Heap, Memory, Network, SPIFlash, TagSync,
+    About, AudioState, Connection, Event, File, FileSync, Heap, Memory, Network, SPIFlash, TagSync,
 };
 use crate::files::FileView;
 use crate::json::{self, Handler, Message, Notification, Response};
@@ -57,6 +57,17 @@ pub enum TagViewContent {
 pub struct Element {
     pub name: String,
     pub file: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Tag {
+    pub genre: String,
+    pub artist: String,
+    pub album: String,
+    pub title: String,
+    pub date: Option<u16>,
+    pub track: u16,
+    pub duration: u16,
 }
 
 enum Command {
@@ -272,6 +283,11 @@ impl Backend {
     pub fn tagview_content(&self) -> TagViewContent {
         let t = self.tagview.lock().unwrap();
         t.content()
+    }
+
+    pub fn tag(&self, file: &str) -> Option<Tag> {
+        let t = self.tagview.lock().unwrap();
+        t.tag(file).cloned()
     }
 
     pub fn play_track(&self, file: String) {
@@ -638,6 +654,10 @@ impl Backend {
                     let evt = Event::Volume(vol.into());
                     tx.send(evt).unwrap();
                 }
+                Notification::AudioState(state) => {
+                    let evt = Event::AudioState(state.into());
+                    tx.send(evt).unwrap();
+                }
             },
         }
     }
@@ -684,5 +704,27 @@ impl From<json::Volume> for i32 {
     fn from(value: json::Volume) -> Self {
         _ = value.right;
         value.left
+    }
+}
+
+impl From<json::AudioState> for AudioState {
+    fn from(value: json::AudioState) -> Self {
+        if value.mode == "PLAY"
+            && let Some(file) = value.file
+        {
+            AudioState::Play {
+                file,
+                pos: value.pos,
+            }
+        } else if value.mode == "PAUSE"
+            && let Some(file) = value.file
+        {
+            AudioState::Pause {
+                file,
+                pos: value.pos,
+            }
+        } else {
+            AudioState::Stop
+        }
     }
 }
