@@ -82,7 +82,8 @@ enum Command {
     SetWiFiNetwork { ssid: String, key: String },
     DeleteWiFiNetwork { ssid: String },
     PlayTrack { file: String },
-    StopPlay,
+    Stop,
+    Pause,
     SetVolume { left: i32, right: i32 },
     Quit,
 }
@@ -300,11 +301,21 @@ impl Backend {
         }
     }
 
-    pub fn stop_play(&self) {
+    pub fn stop(&self) {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if data.connected {
-            self.cmd.send(Command::StopPlay).unwrap();
+            self.cmd.send(Command::Stop).unwrap();
+        } else {
+            self.evt.send(Event::Error(Error::NotConnected)).unwrap();
+        }
+    }
+
+    pub fn pause(&self) {
+        let (mutex, _) = &*self.shared;
+        let data = mutex.lock().unwrap();
+        if data.connected {
+            self.cmd.send(Command::Pause).unwrap();
         } else {
             self.evt.send(Event::Error(Error::NotConnected)).unwrap();
         }
@@ -384,8 +395,11 @@ impl Backend {
                     Command::PlayTrack { file } => {
                         com.send(json.play_track(&file));
                     }
-                    Command::StopPlay => {
-                        com.send(json.stop_play());
+                    Command::Stop => {
+                        com.send(json.stop());
+                    }
+                    Command::Pause => {
+                        com.send(json.pause());
                     }
                     Command::SetVolume { left, right } => {
                         com.send(json.set_volume(left, right));
@@ -634,9 +648,16 @@ impl Backend {
                     }
                     Err(e) => tx.send(Event::Error(e.into())).unwrap(),
                 },
-                Response::StopPlay(res) => match res {
+                Response::Stop(res) => match res {
                     Ok(_empty) => {
-                        let evt = Event::StopPlay;
+                        let evt = Event::Stop;
+                        tx.send(evt).unwrap();
+                    }
+                    Err(e) => tx.send(Event::Error(e.into())).unwrap(),
+                },
+                Response::Pause(res) => match res {
+                    Ok(_empty) => {
+                        let evt = Event::Pause;
                         tx.send(evt).unwrap();
                     }
                     Err(e) => tx.send(Event::Error(e.into())).unwrap(),

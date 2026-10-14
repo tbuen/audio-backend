@@ -17,7 +17,8 @@ const DELETE_WIFI_NETWORK: &str = "delete-wifi-network";
 const GET_FILE_LIST: &str = "get-file-list";
 const GET_TRACK_INFO: &str = "get-track-info";
 const PLAY_TRACK: &str = "play-track";
-const STOP_PLAY: &str = "stop-play";
+const STOP: &str = "stop";
+const PAUSE: &str = "pause";
 const SET_VOLUME: &str = "set-volume";
 
 const VOLUME: &str = "volume";
@@ -52,7 +53,8 @@ pub(crate) enum Response {
     FileList(Result<FileList, jsonrpc::ExecError>),
     TrackInfo(Result<TrackInfo, jsonrpc::ExecError>),
     PlayTrack(Result<Empty, jsonrpc::ExecError>),
-    StopPlay(Result<Empty, jsonrpc::ExecError>),
+    Stop(Result<Empty, jsonrpc::ExecError>),
+    Pause(Result<Empty, jsonrpc::ExecError>),
     SetVolume(Result<Empty, jsonrpc::ExecError>),
 }
 
@@ -202,8 +204,12 @@ impl Handler {
         self.jsonrpc.build_request(PLAY_TRACK, Some(params))
     }
 
-    pub(crate) fn stop_play(&self) -> String {
-        self.jsonrpc.build_request(STOP_PLAY, None)
+    pub(crate) fn stop(&self) -> String {
+        self.jsonrpc.build_request(STOP, None)
+    }
+
+    pub(crate) fn pause(&self) -> String {
+        self.jsonrpc.build_request(PAUSE, None)
     }
 
     pub(crate) fn set_volume(&self, left: i32, right: i32) -> String {
@@ -249,7 +255,8 @@ impl Handler {
                     GET_FILE_LIST => parse_resp!(data, Response::FileList),
                     GET_TRACK_INFO => parse_resp!(data, Response::TrackInfo),
                     PLAY_TRACK => parse_resp!(data, Response::PlayTrack),
-                    STOP_PLAY => parse_resp!(data, Response::StopPlay),
+                    STOP => parse_resp!(data, Response::Stop),
+                    PAUSE => parse_resp!(data, Response::Pause),
                     SET_VOLUME => parse_resp!(data, Response::SetVolume),
                     _ => Err(Error::UnknownMethod(method.to_owned())),
                 },
