@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
@@ -97,14 +98,14 @@ struct SharedData {
 }
 
 impl Backend {
-    pub fn new() -> Self {
+    pub fn new(cache_dir: Option<&Path>) -> Self {
         let (cmd, rx) = mpsc::channel();
         let (tx, receiver) = mpsc::channel();
         let evt = tx.clone();
         let receiver = Cell::new(Some(receiver));
         let shared = Arc::new((Mutex::new(SharedData::default()), Condvar::new()));
-        let fileview = Arc::new(Mutex::new(FileView::new()));
-        let tagview = Arc::new(Mutex::new(TagView::new()));
+        let fileview = Arc::new(Mutex::new(FileView::new(cache_dir)));
+        let tagview = Arc::new(Mutex::new(TagView::new(cache_dir)));
         let handle = {
             let shared_thread = shared.clone();
             let fileview_thread = fileview.clone();
@@ -464,6 +465,9 @@ impl Backend {
                     FileSyncState::Finished => {
                         let mut f = fileview.lock().unwrap();
                         f.rebuild(filesync.take().unwrap());
+                        let filelist = f.get_all_tracks_in_tree(f.prefix());
+                        let mut t = tagview.lock().unwrap();
+                        t.remove_tracks_except(filelist);
                         tx.send(Event::FileSync(FileSync::Completed)).unwrap();
                         data.filesync = false;
                     }
@@ -681,12 +685,6 @@ impl Backend {
                 }
             },
         }
-    }
-}
-
-impl Default for Backend {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
