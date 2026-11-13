@@ -212,7 +212,7 @@ impl Handler {
         self.jsonrpc.build_request(PAUSE, None)
     }
 
-    pub(crate) fn set_volume(&self, relative: u8, left: i8, right: i8) -> String {
+    pub(crate) fn set_volume(&self, relative: u16, left: i32, right: i32) -> String {
         let params = json!({"relative":relative,"left":left,"right":right});
         self.jsonrpc.build_request(SET_VOLUME, Some(params))
     }

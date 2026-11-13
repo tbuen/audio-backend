@@ -80,12 +80,23 @@ enum Command {
     GetInfoSPIFlash,
     GetWiFiScanResult,
     GetWiFiNetworkList,
-    SetWiFiNetwork { ssid: String, key: String },
-    DeleteWiFiNetwork { ssid: String },
-    PlayTrack { file: String },
+    SetWiFiNetwork {
+        ssid: String,
+        key: String,
+    },
+    DeleteWiFiNetwork {
+        ssid: String,
+    },
+    PlayTrack {
+        file: String,
+    },
     Stop,
     Pause,
-    SetVolume { relative: u8, left: i8, right: i8 },
+    SetVolume {
+        relative: u16,
+        left: i32,
+        right: i32,
+    },
     Quit,
 }
 
@@ -322,7 +333,7 @@ impl Backend {
         }
     }
 
-    pub fn set_volume(&self, relative: u8, value: i8) {
+    pub fn set_volume(&self, relative: u16, value: i32) {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if data.connected {
