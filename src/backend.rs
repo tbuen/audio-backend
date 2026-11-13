@@ -85,7 +85,7 @@ enum Command {
     PlayTrack { file: String },
     Stop,
     Pause,
-    SetVolume { left: i32, right: i32 },
+    SetVolume { relative: u8, left: i8, right: i8 },
     Quit,
 }
 
@@ -322,12 +322,13 @@ impl Backend {
         }
     }
 
-    pub fn set_volume(&self, value: i32) {
+    pub fn set_volume(&self, relative: u8, value: i8) {
         let (mutex, _) = &*self.shared;
         let data = mutex.lock().unwrap();
         if data.connected {
             self.cmd
                 .send(Command::SetVolume {
+                    relative,
                     left: value,
                     right: value,
                 })
@@ -402,8 +403,12 @@ impl Backend {
                     Command::Pause => {
                         com.send(json.pause());
                     }
-                    Command::SetVolume { left, right } => {
-                        com.send(json.set_volume(left, right));
+                    Command::SetVolume {
+                        relative,
+                        left,
+                        right,
+                    } => {
+                        com.send(json.set_volume(relative, left, right));
                     }
                     Command::Quit => {
                         debug!("quit received");
