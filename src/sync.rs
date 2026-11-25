@@ -9,7 +9,7 @@ use crate::common::jsonrpc;
 use crate::files::FileView;
 use crate::json::{FileList, TrackInfo};
 
-const PARALLEL_REQUESTS: usize = 5;
+const PARALLEL_REQUESTS: u16 = 5;
 const SYNC_TIMEOUT_S: u64 = 2;
 
 pub(crate) struct SyncFiles {
@@ -59,7 +59,7 @@ pub(crate) enum FileSyncState<'a> {
 
 #[derive(Debug)]
 pub(crate) enum TagSyncState<'a> {
-    NextToSync(Vec<&'a str>, usize, usize),
+    NextToSync(Vec<&'a str>, u16, u16),
     Waiting,
     Timeout,
     Finished,
@@ -88,16 +88,20 @@ impl<'a> SyncFiles {
 
     pub(crate) fn state(&'a mut self) -> FileSyncState<'a> {
         let n_total = self.map.len();
-        let mut n_new = self
-            .map
-            .values()
-            .filter(|e| matches!(e.step, SyncStep::New))
-            .count();
-        let mut n_req = self
-            .map
-            .values()
-            .filter(|e| matches!(e.step, SyncStep::Requested))
-            .count();
+        let mut n_new = u16::try_from(
+            self.map
+                .values()
+                .filter(|e| matches!(e.step, SyncStep::New))
+                .count(),
+        )
+        .unwrap();
+        let mut n_req = u16::try_from(
+            self.map
+                .values()
+                .filter(|e| matches!(e.step, SyncStep::Requested))
+                .count(),
+        )
+        .unwrap();
 
         if !self.started {
             self.started = true;
@@ -190,17 +194,21 @@ impl<'a> SyncTags {
     }
 
     pub(crate) fn state(&'a mut self) -> TagSyncState<'a> {
-        let n_total = self.map.len();
-        let mut n_new = self
-            .map
-            .values()
-            .filter(|e| matches!(e.step, SyncStep::New))
-            .count();
-        let mut n_req = self
-            .map
-            .values()
-            .filter(|e| matches!(e.step, SyncStep::Requested))
-            .count();
+        let n_total = u16::try_from(self.map.len()).unwrap();
+        let mut n_new = u16::try_from(
+            self.map
+                .values()
+                .filter(|e| matches!(e.step, SyncStep::New))
+                .count(),
+        )
+        .unwrap();
+        let mut n_req = u16::try_from(
+            self.map
+                .values()
+                .filter(|e| matches!(e.step, SyncStep::Requested))
+                .count(),
+        )
+        .unwrap();
 
         if let Some(e) = self.error.take() {
             error!("tag sync error");

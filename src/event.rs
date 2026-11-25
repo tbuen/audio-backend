@@ -78,7 +78,7 @@ pub enum FileSync {
 #[derive(Debug, Clone)]
 pub enum TagSync {
     Started,
-    Step(usize, usize),
+    Step(u16, u16),
     Completed,
     Aborted,
 }
