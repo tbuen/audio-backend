@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::fmt;
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -270,7 +271,9 @@ impl Backend {
 
     pub fn fileview_current(&self) -> Vec<String> {
         let f = self.fileview.lock().unwrap();
-        f.current().split('/').map(ToOwned::to_owned).collect()
+        let mut current: Vec<String> = f.current().split('/').map(ToOwned::to_owned).collect();
+        current.remove(0);
+        current
     }
 
     pub fn fileview_change(&self, to: ChangeDirection) -> Result<()> {
@@ -761,5 +764,11 @@ impl From<json::AudioState> for AudioState {
         } else {
             AudioState::Stop
         }
+    }
+}
+
+impl fmt::Display for Element {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
     }
 }
